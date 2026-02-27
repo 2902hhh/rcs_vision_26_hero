@@ -45,11 +45,9 @@ void load(
 
     // 识别标定板
     std::vector<cv::Point2f> centers_2d;
-    // 【修改1】改为棋盘格检测
-    auto success = cv::findChessboardCorners(img, pattern_size, centers_2d, 
+    auto success = cv::findChessboardCorners(img, pattern_size, centers_2d,
         cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE);
 
-    // 【修改2】增加亚像素优化
     if (success) {
         cv::Mat gray;
         cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);

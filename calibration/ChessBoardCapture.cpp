@@ -48,9 +48,9 @@ void capture_loop(
 
     std::vector<cv::Point2f> centers_2d;
     // 使用 FAST_CHECK 提高采集时的帧率
-    auto success = cv::findChessboardCorners(img, pattern_size, centers_2d, 
+    auto success = cv::findChessboardCorners(img, pattern_size, centers_2d,
         cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
-        // 【修改3】增加亚像素优化 (棋盘格必须项)
+
     if (success) {
         cv::Mat gray;
         cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
@@ -95,7 +95,7 @@ int main(int argc, char * argv[])
   // 新建输出文件夹
   std::filesystem::create_directory(output_folder);
 
-  tools::logger()->info("默认标定板尺寸为10列7行");
+  tools::logger()->info("默认标定板为8x10格子(9x7内角点)");
   // 主循环，保存图片和对应四元数
   capture_loop(config_path, "can0", output_folder);
 
