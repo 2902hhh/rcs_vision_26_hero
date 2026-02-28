@@ -303,7 +303,34 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     delta_angle_list.emplace_back(delta_angle);
   }
 
-  // 不考虑小陀螺
+  // ==========================================
+  // 前哨站静止时：按普通非陀螺目标处理
+  // 选择在可射击范围内、delta_angle 最小的装甲板（即最正面的板）
+  // ==========================================
+  if (target.name == ArmorName::outpost && target.outpost_is_static) {
+    std::vector<int> id_list;
+    for (int i = 0; i < armor_num; i++) {
+      if (std::abs(delta_angle_list[i]) > 60 / 57.3) continue;
+      id_list.push_back(i);
+    }
+    if (id_list.empty()) {
+      tools::logger()->warn("[Aimer] Outpost static: no visible armor!");
+      return {false, armor_xyza_list[0]};
+    }
+
+    // 锁定模式：静止时选最正面的板，避免在两板间来回切换
+    if (id_list.size() > 1) {
+      int id0 = id_list[0], id1 = id_list[1];
+      if (lock_id_ != id0 && lock_id_ != id1)
+        lock_id_ = (std::abs(delta_angle_list[id0]) < std::abs(delta_angle_list[id1])) ? id0 : id1;
+      return {true, armor_xyza_list[lock_id_]};
+    }
+
+    lock_id_ = -1;
+    return {true, armor_xyza_list[id_list[0]]};
+  }
+
+  // 不考虑小陀螺（普通装甲板且角速度低）
   if (std::abs(target.ekf_x()[8]) <= 2 && target.name != ArmorName::outpost) {
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;

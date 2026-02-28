@@ -22,7 +22,9 @@ Target::Target(
   switch_count_(0),
   outpost_initialized(false),
   outpost_base_height(0.0),
-  outpost_layer(0)
+  outpost_layer(0),
+  outpost_is_static(false),
+  outpost_static_count(0)
 {
   auto r = radius;
   priority = armor.priority;
@@ -166,10 +168,11 @@ void Target::print_outpost_debug_info()
     double p_yaw = ekf_.P(6, 6);
     double p_omega = ekf_.P(7, 7);
 
-    // === 打印日志 ===
-    // 格式: [Outpost] L:层级 | R:半径(状态) | W:角速度 | BaseZ:基准高 | Py:Yaw方差
+    // 格式: [Outpost] 状态 | L:层级 | R:半径(状态) | W:角速度 | BaseZ:基准高 | Py:Yaw方差
+    const char * mode_str = outpost_is_static ? "STATIC" : "SPIN";
     tools::logger()->info(
-        "[Outpost] L:{} | R:{:.4f} ({}) | W:{:.3f} | BaseZ:{:.3f} | P_Yaw:{:.5f}",
+        "[Outpost] {} | L:{} | R:{:.4f} ({}) | W:{:.3f} | BaseZ:{:.3f} | P_Yaw:{:.5f}",
+        mode_str,
         layer, 
         r, (r_stable ? "OK" : "BAD"), 
         omega, 
@@ -181,7 +184,7 @@ void Target::print_outpost_debug_info()
     if (!r_stable) {
         tools::logger()->warn("  >>> RADIUS DRIFT! Force Reset Recommended.");
     }
-    if (p_yaw > 0.1) { // 0.1 rad^2 很大了
+    if (p_yaw > 0.1) {
         tools::logger()->warn("  >>> YAW UNSTABLE! P_Yaw > 0.1");
     }
 }
@@ -210,9 +213,13 @@ void Target::predict(double dt)
   // Piecewise White Noise Model
   // https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/master/07-Kalman-Filter-Math.ipynb
   double v1, v2;
-  if (name == ArmorName::outpost) {
-    v1 = 1e-3;   // 前哨站加速度方差
-    v2 = 100;  // 前哨站角加速度方差
+  if (name == ArmorName::outpost && outpost_is_static) {
+    // 前哨站静止状态：位置几乎不变，角速度变化也很小
+    v1 = 1e-4;   // 静止时位置方差极小
+    v2 = 10;     // 静止时角加速度方差较小（允许缓慢恢复旋转）
+  } else if (name == ArmorName::outpost) {
+    v1 = 1e-3;   // 前哨站旋转时加速度方差
+    v2 = 100;    // 前哨站旋转时角加速度方差
   } else {
     v1 = 100;  // 加速度方差
     v2 = 400;  // 角加速度方差
@@ -244,8 +251,9 @@ void Target::predict(double dt)
     return x_prior;
   };
 
-  // 前哨站转速特判
-  if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
+  // 前哨站转速特判（仅在旋转状态下钳位）
+  if (this->convergened() && this->name == ArmorName::outpost && !outpost_is_static &&
+      std::abs(this->ekf_.x[7]) > 2)
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
   ekf_.predict(F, Q, f);
@@ -316,7 +324,7 @@ void Target::handle_outpost_update(const Armor & armor)
     double current_yaw = armor.ypr_in_world[0];
 
     // ==========================================
-    // 1. 初始化基准高度 (保持你的原逻辑)
+    // 1. 初始化基准高度
     // ==========================================
     if (!outpost_initialized) {
         static std::vector<double> z_history;
@@ -336,36 +344,66 @@ void Target::handle_outpost_update(const Armor & armor)
     }
 
     // ==========================================
-    // 2. 基于高度计算物理层级 (Physical Layer)
+    // 2. 前哨站静止/旋转状态判定
+    //    利用 EKF 估计的角速度 ekf_.x[7] 判断
+    //    使用滞回逻辑防止状态频繁切换
+    // ==========================================
+    double omega = ekf_.x[7];  // 当前 EKF 估计的角速度
+    if (std::abs(omega) < OUTPOST_STATIC_OMEGA_THRESH) {
+        // 角速度低于阈值，累加静止计数
+        outpost_static_count = std::min(outpost_static_count + 1,
+                                        OUTPOST_STATIC_ENTER_COUNT + 10);  // 防溢出
+        if (!outpost_is_static && outpost_static_count >= OUTPOST_STATIC_ENTER_COUNT) {
+            outpost_is_static = true;
+            tools::logger()->info("[Outpost] 进入静止状态 (omega={:.3f})", omega);
+        }
+    } else {
+        // 角速度超过阈值，递减静止计数
+        outpost_static_count = std::max(outpost_static_count - 1, 0);
+        if (outpost_is_static && outpost_static_count <= OUTPOST_STATIC_EXIT_COUNT) {
+            outpost_is_static = false;
+            tools::logger()->info("[Outpost] 进入旋转状态 (omega={:.3f})", omega);
+        }
+    }
+
+    // ==========================================
+    // 3. 基于高度计算物理层级 (Physical Layer)
     // ==========================================
     double diff = current_z - outpost_base_height;
     int raw_layer = std::round(diff / OUTPOST_HEIGHT_DIFF);
-    // 钳制在 0~2 (这是仅基于 Z 轴的猜测)
+    // 钳制在 0~2 (仅基于 Z 轴的猜测)
     int height_layer = std::max(0, std::min(2, raw_layer));
 
     int final_layer = height_layer;
 
     // ==========================================
-    // 3. 相位保护机制 (Phase Protection)
+    // 4. 静止状态处理
+    //    静止时不需要相位保护，直接用高度判别 layer
+    //    并将角速度缓慢衰减至 0
     // ==========================================
-    // 只有当滤波器运行了几 5 帧后，预测的角度才可信
-    if (update_count_ > 10) {
-        
-        // [Existing Variable] ekf_.x[6] 
-        // 这里的 x[6] 已经是经过 predict() 后的值，即当前时刻的预测角度
+    if (outpost_is_static) {
+        // 静止时直接信任高度判别
+        final_layer = height_layer;
+
+        // 将角速度缓慢衰减至 0，避免残留角速度导致预测漂移
+        ekf_.x[7] *= 0.9;
+        if (std::abs(ekf_.x[7]) < 0.01) ekf_.x[7] = 0.0;
+    }
+    // ==========================================
+    // 5. 旋转状态处理：相位保护机制 (Phase Protection)
+    //    只有滤波器运行 >10 帧后，预测角度才可信
+    // ==========================================
+    else if (update_count_ > 10) {
+        // ekf_.x[6] 是经过 predict() 后的当前预测角度
         double pred_yaw_base = ekf_.x[6]; 
 
-        // [New Variable] 寻找与预测角度最接近的 ID
+        // 寻找与预测角度最接近的 ID
         int best_id = height_layer;
-        double min_yaw_diff = 100.0; // 初始化为一个较大值
+        double min_yaw_diff = 100.0;
 
-        // 遍历可能的 ID (0, 1, 2)
         for (int id = 0; id < 3; ++id) {
-            // 假设当前板子是 id，算出它对应的 "Layer 0 基准角度"
-            // 公式：Obs_Yaw_Base = Obs_Yaw + id * 120度
+            // 假设当前板子是 id，反推 Layer 0 基准角度
             double yaw_if_id = tools::limit_rad(current_yaw + id * 2.0 * CV_PI / 3.0);
-            
-            // 计算这个假设与 EKF 预测值的偏差
             double diff_val = std::abs(tools::limit_rad(yaw_if_id - pred_yaw_base));
             
             if (diff_val < min_yaw_diff) {
@@ -374,35 +412,27 @@ void Target::handle_outpost_update(const Armor & armor)
             }
         }
 
-        // ==========================================
-        // 4. 冲突处理 (Conflict Resolution)
-        // ==========================================
-        // 如果 Z轴计算的 ID 和 角度计算的 ID 不一致
+        // 冲突处理：Z 轴 vs 角度
         if (best_id != height_layer) {
-            // 检查 Z 轴是否严重反对 best_id
-            // 如果按照 best_id 修正，Z 轴误差是多少？
             double z_if_best = current_z - best_id * OUTPOST_HEIGHT_DIFF;
             double z_error = std::abs(z_if_best - outpost_base_height);
 
-            // 0.15m 是容差阈值 (层高是 0.1m，如果误差超过 1.5层，说明 Z 轴太离谱或者角度计算错了)
-            // 如果误差在可接受范围内 (< 0.15)，我们坚定地信任角度 (best_id)
             if (z_error < 0.2) {
-                // [Log] 记录一次基于相位的修正，方便调试
                 if (update_count_ % 20 == 0) { 
                      tools::logger()->debug("Outpost Phase Fix: Z-ID {} -> Yaw-ID {}", height_layer, best_id);
                 }
                 final_layer = best_id;
             } else {
-                // 如果 Z 轴误差实在太大，可能发生了基准高度漂移或者识别错误，保留 Z 轴的结果
                 final_layer = height_layer;
             }
         } else {
-            final_layer = best_id; // 一致，直接用
+            final_layer = best_id;
         }
     }
 
-    // 更新基准高度 (仅当 ID 判定可信时)
-    // 这里的平滑系数 0.01 可以让基准高度缓慢适应地形变化
+    // ==========================================
+    // 6. 更新基准高度（平滑系数 0.01，缓慢适应地形变化）
+    // ==========================================
     if (final_layer >= 0 && final_layer <= 2) {
         double estimated_base = current_z - final_layer * OUTPOST_HEIGHT_DIFF;
         outpost_base_height = 0.99 * outpost_base_height + 0.01 * estimated_base;
@@ -414,20 +444,19 @@ void Target::handle_outpost_update(const Armor & armor)
     last_id = final_layer;
 
     // ==========================================
-    // 5. 修正观测值并送入 EKF
+    // 7. 修正观测值并送入 EKF
     // ==========================================
     Armor virtual_armor = armor;
     // 强行将 Z 轴拉回 Layer 0 的平面
     virtual_armor.xyz_in_world[2] = current_z - final_layer * OUTPOST_HEIGHT_DIFF;
-    // 重新计算 ypd (距离 Distance 和 Pitch 会因此改变，这很重要)
+    // 重新计算 ypd (距离和 Pitch 会因此改变)
     virtual_armor.ypd_in_world = tools::xyz2ypd(virtual_armor.xyz_in_world);
 
-    // 强制锁定半径 (你的原逻辑)
+    // 强制锁定半径
     ekf_.x[8] = 0.2765;
     ekf_.P(8, 8) = 1e-10; 
 
     update_ypda(virtual_armor, final_layer);
-    //check_abnormal_state(armor, final_layer);
     update_count_++;
 
     print_outpost_debug_info();

@@ -24,11 +24,18 @@ public:
   bool jumped;
   int last_id;  // debug only
 
-  // === 新增：前哨站专用变量 ===
+  // === 前哨站专用变量 ===
   bool outpost_initialized = false;
   double outpost_base_height = 0.0; // 基准高度
   int outpost_layer = 0; // 当前层级 (0, 1, 2)
   static constexpr double OUTPOST_HEIGHT_DIFF = 0.10; // 层间高度差 10cm
+
+  // 前哨站静止/旋转状态判定
+  bool outpost_is_static = false;       // 当前是否处于静止状态
+  int outpost_static_count = 0;         // 连续静止帧计数
+  static constexpr double OUTPOST_STATIC_OMEGA_THRESH = 0.15;  // 静止判定角速度阈值 (rad/s)
+  static constexpr int OUTPOST_STATIC_ENTER_COUNT = 15;        // 进入静止状态所需连续帧数
+  static constexpr int OUTPOST_STATIC_EXIT_COUNT = 5;          // 退出静止状态所需连续帧数
   // ==========================
 
   Target() = default;
