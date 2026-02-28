@@ -110,6 +110,10 @@ void load(
     cv::solvePnP(
       centers_3d_, centers_2d, camera_matrix, distort_coeffs, rvec, tvec, false, cv::SOLVEPNP_IPPE);
 
+    // 调试：检查PnP解算的距离
+    double pnp_distance = cv::norm(tvec);
+    fmt::print("[Debug] Image {}: PnP distance = {:.1f} mm\n", i, pnp_distance);
+
     // 记录所需的数据
     R_world2gimbal_list.emplace_back(R_world2gimbal_cv);
     t_world2gimbal_list.emplace_back(t_world2gimbal);
@@ -196,10 +200,13 @@ int main(int argc, char * argv[])
   Eigen::Matrix3d R_camera2ideal = R_gimbal2ideal * R_camera2gimbal_eigen;
   Eigen::Vector3d camera_ypr = tools::eulers(R_camera2ideal, 1, 0, 2) * 57.3;  // degree
 
-  // 计算标定板到世界坐标系原点的水平距离
-  auto x = t_board2world.at<double>(0);
-  auto y = t_board2world.at<double>(1);
-  auto distance = std::sqrt(x * x + y * y);
+  // 用 solvePnP tvec 的中位数直接计算标定板距离（不依赖 calibrateRobotWorldHandEye 的旋转）
+  std::vector<double> pnp_distances;
+  for (size_t i = 0; i < tvecs.size(); i++) {
+    pnp_distances.push_back(cv::norm(tvecs[i]) / 1e3);  // mm to m
+  }
+  std::sort(pnp_distances.begin(), pnp_distances.end());
+  double distance = pnp_distances[pnp_distances.size() / 2];  // 中位数作为距离估计
 
   // 计算标定板同竖直摆放时的偏角
   Eigen::Matrix3d R_board2world_eigen;

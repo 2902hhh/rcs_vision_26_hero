@@ -64,6 +64,24 @@ int main(int argc, char * argv[])
         solver.solve(armor);
     }
 
+    // [新增] 在终端输出装甲板距离
+    if (!armors.empty()) {
+        fmt::print("\n--- 检测到 {} 个装甲板 ---\n", armors.size());
+        int idx = 0;
+        for (const auto & armor : armors) {
+            idx++;
+            auto xyz = armor.xyz_in_gimbal;
+            double distance = std::sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
+            fmt::print("[{}] {} {} | X:{:.2f} Y:{:.2f} Z:{:.2f} | 距离: {:.2f}m\n",
+                idx,
+                auto_aim::COLORS[armor.color],
+                auto_aim::ARMOR_NAMES[armor.name],
+                xyz[0], xyz[1], xyz[2],
+                distance);
+        }
+        fmt::print("------------------------\n");
+    }
+
     auto now = std::chrono::steady_clock::now();
     auto dt = tools::delta_time(now, last);
     
