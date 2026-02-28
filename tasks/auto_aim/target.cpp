@@ -347,22 +347,28 @@ void Target::handle_outpost_update(const Armor & armor)
     // 2. 前哨站静止/旋转状态判定
     //    利用 EKF 估计的角速度 ekf_.x[7] 判断
     //    使用滞回逻辑防止状态频繁切换
+    //    注意：EKF 收敛前 (update_count_ < 10) 不做静止判定，
+    //    因为此时 omega 估计不可靠
     // ==========================================
     double omega = ekf_.x[7];  // 当前 EKF 估计的角速度
-    if (std::abs(omega) < OUTPOST_STATIC_OMEGA_THRESH) {
-        // 角速度低于阈值，累加静止计数
-        outpost_static_count = std::min(outpost_static_count + 1,
-                                        OUTPOST_STATIC_ENTER_COUNT + 10);  // 防溢出
-        if (!outpost_is_static && outpost_static_count >= OUTPOST_STATIC_ENTER_COUNT) {
-            outpost_is_static = true;
-            tools::logger()->info("[Outpost] 进入静止状态 (omega={:.3f})", omega);
-        }
-    } else {
-        // 角速度超过阈值，递减静止计数
-        outpost_static_count = std::max(outpost_static_count - 1, 0);
-        if (outpost_is_static && outpost_static_count <= OUTPOST_STATIC_EXIT_COUNT) {
-            outpost_is_static = false;
-            tools::logger()->info("[Outpost] 进入旋转状态 (omega={:.3f})", omega);
+    if (update_count_ >= 10) {
+        // EKF 已收敛，可以信任 omega 估计
+        if (std::abs(omega) < OUTPOST_STATIC_OMEGA_THRESH) {
+            // 角速度低于阈值，累加静止计数
+            // 钳制到 ENTER_COUNT，避免过度累积导致退出滞后
+            outpost_static_count = std::min(outpost_static_count + 1,
+                                            OUTPOST_STATIC_ENTER_COUNT);
+            if (!outpost_is_static && outpost_static_count >= OUTPOST_STATIC_ENTER_COUNT) {
+                outpost_is_static = true;
+                tools::logger()->info("[Outpost] 进入静止状态 (omega={:.3f})", omega);
+            }
+        } else {
+            // 角速度超过阈值，递减静止计数
+            outpost_static_count = std::max(outpost_static_count - 1, 0);
+            if (outpost_is_static && outpost_static_count <= OUTPOST_STATIC_EXIT_COUNT) {
+                outpost_is_static = false;
+                tools::logger()->info("[Outpost] 进入旋转状态 (omega={:.3f})", omega);
+            }
         }
     }
 
@@ -385,9 +391,10 @@ void Target::handle_outpost_update(const Armor & armor)
         // 静止时直接信任高度判别
         final_layer = height_layer;
 
-        // 将角速度缓慢衰减至 0，避免残留角速度导致预测漂移
-        ekf_.x[7] *= 0.9;
-        if (std::abs(ekf_.x[7]) < 0.01) ekf_.x[7] = 0.0;
+        // 放大 P(7,7) 表示"对当前 omega 不确定"，让 EKF 通过观测自然将 omega 拉向 0
+        // 配合静止模式的低过程噪声 (v2=10)，EKF 不会在 predict 中发散 omega
+        // 不直接修改 x[7]，避免破坏 EKF 的协方差一致性
+        ekf_.P(7, 7) = std::max(ekf_.P(7, 7), 0.5);
     }
     // ==========================================
     // 5. 旋转状态处理：相位保护机制 (Phase Protection)

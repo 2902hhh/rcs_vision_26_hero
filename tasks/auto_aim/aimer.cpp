@@ -330,7 +330,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     return {true, armor_xyza_list[id_list[0]]};
   }
 
-  // 不考虑小陀螺（普通装甲板且角速度低）
+  // 非小陀螺模式（普通装甲板且半径 r 较小，即未检测到旋转中心偏移）
   if (std::abs(target.ekf_x()[8]) <= 2 && target.name != ArmorName::outpost) {
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
