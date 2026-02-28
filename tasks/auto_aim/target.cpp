@@ -148,8 +148,8 @@ void Target::print_outpost_debug_info()
     bool r_stable = std::abs(r - 0.2765) < 0.02;
 
     // 2. 角速度检查 (Omega)
-    // 前哨站通常转速在 0.4 ~ 0.8 rad/s 之间
-    // 如果 > 2.0 说明发散，如果 ~0 说明没跟上
+    // 前哨站转速 0.8π ≈ 2.51 rad/s
+    // 如果 > 3.5 说明发散，如果 ~0 说明没跟上
     double omega = ekf_.x[7];
     
     // 3. 角度残差检查 (Innovation)
@@ -252,8 +252,9 @@ void Target::predict(double dt)
   };
 
   // 前哨站转速特判（仅在旋转状态下钳位）
+  // 正常转速 0.8π ≈ 2.51 rad/s，超过 3.5 才钳制
   if (this->convergened() && this->name == ArmorName::outpost && !outpost_is_static &&
-      std::abs(this->ekf_.x[7]) > 2)
+      std::abs(this->ekf_.x[7]) > 3.5)
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
   ekf_.predict(F, Q, f);
