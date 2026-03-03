@@ -3,12 +3,22 @@
 # 用法: ./debug_dashboard/start.sh
 # 然后在 VS Code 中: Ctrl+Shift+P -> "Simple Browser: Show" -> http://localhost:9872/index.html
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "================================================="
 echo "  sp_vision Debug Monitor"
 echo "================================================="
 echo ""
+
+# 自动杀掉占用端口的旧进程
+for port in 9870 9871 9872; do
+  pid=$(lsof -t -i:$port 2>/dev/null)
+  if [ -n "$pid" ]; then
+    echo "[清理] 端口 $port 被 PID $pid 占用，正在终止..."
+    kill $pid 2>/dev/null
+    sleep 0.3
+  fi
+done
 
 # 检查 Python3
 if ! command -v python3 &> /dev/null; then
