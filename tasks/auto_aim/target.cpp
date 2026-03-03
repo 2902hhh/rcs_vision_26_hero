@@ -214,9 +214,9 @@ void Target::predict(double dt)
   // https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python/blob/master/07-Kalman-Filter-Math.ipynb
   double v1, v2;
   if (name == ArmorName::outpost && outpost_is_static) {
-    // 前哨站静止状态：位置几乎不变，角速度变化也很小
+    // 前哨站静止状态：位置几乎不变，角速度也不应变化
     v1 = 1e-4;   // 静止时位置方差极小
-    v2 = 10;     // 静止时角加速度方差较小（允许缓慢恢复旋转）
+    v2 = 1.0;    // 静止时角加速度方差极小，防止 yaw 漂移
   } else if (name == ArmorName::outpost) {
     v1 = 1e-3;   // 前哨站旋转时加速度方差
     v2 = 100;    // 前哨站旋转时角加速度方差
@@ -392,9 +392,20 @@ void Target::handle_outpost_update(const Armor & armor)
         // 静止时直接信任高度判别
         final_layer = height_layer;
 
-        // 放大 P(7,7) 表示"对当前 omega 不确定"，让 EKF 通过观测自然将 omega 拉向 0
-        // 配合静止模式的低过程噪声 (v2=10)，EKF 不会在 predict 中发散 omega
-        // 不直接修改 x[7]，避免破坏 EKF 的协方差一致性
+        // === 修复：静止时强制矫正 EKF yaw 对齐观测板 ===
+        // 观测板角度为 current_yaw，对应 EKF ID = final_layer
+        // EKF 中该板角度 = x[6] - final_layer * 120°
+        // 所以 x[6] 应该 = current_yaw + final_layer * 120°
+        double correct_base_yaw = tools::limit_rad(
+            current_yaw + final_layer * 2.0 * CV_PI / 3.0);
+        double yaw_error = tools::limit_rad(correct_base_yaw - ekf_.x[6]);
+        // 每帧修正 50%，兼顾稳定性与收敛速度
+        ekf_.x[6] = tools::limit_rad(ekf_.x[6] + 0.5 * yaw_error);
+
+        // 静止时 omega 应为0，加速衰减
+        ekf_.x[7] *= 0.5;
+
+        // 放大 P(7,7) 表示"对当前 omega 不确定"，配合 v2=1.0 防止漂移
         ekf_.P(7, 7) = std::max(ekf_.P(7, 7), 0.5);
     }
     // ==========================================
@@ -486,7 +497,15 @@ void Target::update_ypda(const Armor & armor, int id)
       double r_yaw = 0.015;//1e-2
       double r_pitch = 1e-1; // 高度噪声大一点
       double r_dist = 1e-1;
-      double r_angle = 5e-2 + std::abs(yaw_diff) * 5.0; // 自适应角度噪声
+      double r_angle;
+      if (outpost_is_static) {
+        // 静止时强信任角度观测，加速 yaw 收敛
+        r_angle = 1e-2;
+      } else {
+        // 旋转时：降低系数 (5.0→1.5) + 上限钳制，加速黄框贴合
+        r_angle = 5e-2 + std::abs(yaw_diff) * 1.5;
+        r_angle = std::min(r_angle, 0.5);
+      }
 
       Eigen::VectorXd R_dig{{r_yaw, r_pitch, r_dist, r_angle}};
       R = R_dig.asDiagonal();
