@@ -308,26 +308,15 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   // 选择在可射击范围内、delta_angle 最小的装甲板（即最正面的板）
   // ==========================================
   if (target.name == ArmorName::outpost && target.outpost_is_static) {
-    std::vector<int> id_list;
-    for (int i = 0; i < armor_num; i++) {
-      if (std::abs(delta_angle_list[i]) > 60 / 57.3) continue;
-      id_list.push_back(i);
+    // === 修复：静止时直接瞄准当前观测到的板 ===
+    // outpost_layer 由 handle_outpost_update 根据实际观测高度确定
+    // 不再依赖 delta_angle（EKF 预测角度），避免 yaw 误差导致选错板
+    int layer = target.outpost_layer;
+    if (layer >= 0 && layer < (int)armor_num) {
+      lock_id_ = -1;  // 重置锁定状态
+      return {true, armor_xyza_list[layer]};
     }
-    if (id_list.empty()) {
-      tools::logger()->warn("[Aimer] Outpost static: no visible armor!");
-      return {false, armor_xyza_list[0]};
-    }
-
-    // 锁定模式：静止时选最正面的板，避免在两板间来回切换
-    if (id_list.size() > 1) {
-      int id0 = id_list[0], id1 = id_list[1];
-      if (lock_id_ != id0 && lock_id_ != id1)
-        lock_id_ = (std::abs(delta_angle_list[id0]) < std::abs(delta_angle_list[id1])) ? id0 : id1;
-      return {true, armor_xyza_list[lock_id_]};
-    }
-
-    lock_id_ = -1;
-    return {true, armor_xyza_list[id_list[0]]};
+    return {false, armor_xyza_list[0]};
   }
 
   // 非小陀螺模式（普通装甲板且半径 r 较小，即未检测到旋转中心偏移）
