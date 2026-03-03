@@ -24,7 +24,12 @@ Target::Target(
   outpost_base_height(0.0),
   outpost_layer(0),
   outpost_is_static(false),
-  outpost_static_count(0)
+  outpost_static_count(0),
+  outpost_last_yaw(0.0),
+  outpost_last_yaw_valid(false),
+  outpost_observed_omega(0.0),
+  outpost_pending_layer(-1),
+  outpost_pending_count(0)
 {
   auto r = radius;
   priority = armor.priority;
@@ -345,30 +350,40 @@ void Target::handle_outpost_update(const Armor & armor)
     }
 
     // ==========================================
-    // 2. 前哨站静止/旋转状态判定
-    //    利用 EKF 估计的角速度 ekf_.x[7] 判断
-    //    使用滞回逻辑防止状态频繁切换
-    //    注意：EKF 收敛前 (update_count_ < 10) 不做静止判定，
-    //    因为此时 omega 估计不可靠
+    // 2. 前哨站静止/旋转状态判定 (基于观测角速度)
+    //    用帧间 yaw 差分计算观测角速度，而非 EKF omega，
+    //    因为 EKF omega 受我们自身修正影响，不够可靠。
+    //    使用滞回双阈值 + 帧计数防止频繁切换。
     // ==========================================
-    double omega = ekf_.x[7];  // 当前 EKF 估计的角速度
+    if (outpost_last_yaw_valid) {
+        // 计算帧间角速度（注意要除以 dt，这里近似用 ~10ms/帧）
+        double dt_approx = tools::delta_time(std::chrono::steady_clock::now(), t_);
+        if (dt_approx < 1e-4) dt_approx = 0.01; // 保护除零
+        double raw_omega = tools::limit_rad(current_yaw - outpost_last_yaw) / dt_approx;
+        // 滑动平均平滑（alpha=0.15），滤掉单帧噪声
+        outpost_observed_omega = 0.85 * outpost_observed_omega + 0.15 * std::abs(raw_omega);
+    }
+    outpost_last_yaw = current_yaw;
+    outpost_last_yaw_valid = true;
+
     if (update_count_ >= 10) {
-        // EKF 已收敛，可以信任 omega 估计
-        if (std::abs(omega) < OUTPOST_STATIC_OMEGA_THRESH) {
-            // 角速度低于阈值，累加静止计数
-            // 钳制到 ENTER_COUNT，避免过度累积导致退出滞后
+        // 滞回逻辑：低阈值进入静止，高阈值退出静止
+        double thresh = outpost_is_static ? OUTPOST_ROTATE_OMEGA_THRESH
+                                          : OUTPOST_STATIC_OMEGA_THRESH;
+        if (outpost_observed_omega < thresh) {
             outpost_static_count = std::min(outpost_static_count + 1,
-                                            OUTPOST_STATIC_ENTER_COUNT);
+                                            OUTPOST_STATIC_ENTER_COUNT + 5);
             if (!outpost_is_static && outpost_static_count >= OUTPOST_STATIC_ENTER_COUNT) {
                 outpost_is_static = true;
-                tools::logger()->info("[Outpost] 进入静止状态 (omega={:.3f})", omega);
+                tools::logger()->info("[Outpost] 进入静止状态 (obs_omega={:.3f})", outpost_observed_omega);
             }
         } else {
-            // 角速度超过阈值，递减静止计数
-            outpost_static_count = std::max(outpost_static_count - 1, 0);
+            outpost_static_count = std::max(outpost_static_count - 2, 0);
             if (outpost_is_static && outpost_static_count <= OUTPOST_STATIC_EXIT_COUNT) {
                 outpost_is_static = false;
-                tools::logger()->info("[Outpost] 进入旋转状态 (omega={:.3f})", omega);
+                outpost_pending_layer = -1; // 状态切换时重置 layer 缓冲
+                outpost_pending_count = 0;
+                tools::logger()->info("[Outpost] 进入旋转状态 (obs_omega={:.3f})", outpost_observed_omega);
             }
         }
     }
@@ -392,20 +407,15 @@ void Target::handle_outpost_update(const Armor & armor)
         // 静止时直接信任高度判别
         final_layer = height_layer;
 
-        // === 修复：静止时强制矫正 EKF yaw 对齐观测板 ===
-        // 观测板角度为 current_yaw，对应 EKF ID = final_layer
-        // EKF 中该板角度 = x[6] - final_layer * 120°
-        // 所以 x[6] 应该 = current_yaw + final_layer * 120°
+        // === 静止时强制矫正 EKF yaw 对齐观测板 ===
         double correct_base_yaw = tools::limit_rad(
             current_yaw + final_layer * 2.0 * CV_PI / 3.0);
         double yaw_error = tools::limit_rad(correct_base_yaw - ekf_.x[6]);
-        // 每帧修正 50%，兼顾稳定性与收敛速度
+        // 每帧修正 50%
         ekf_.x[6] = tools::limit_rad(ekf_.x[6] + 0.5 * yaw_error);
 
-        // 静止时 omega 应为0，加速衰减
-        ekf_.x[7] *= 0.5;
-
-        // 放大 P(7,7) 表示"对当前 omega 不确定"，配合 v2=1.0 防止漂移
+        // 注意：不直接修改 ekf_.x[7]，避免干扰观测角速度判据
+        // 仅放大 P(7,7)，让 EKF 通过观测自然将 omega 拉向 0
         ekf_.P(7, 7) = std::max(ekf_.P(7, 7), 0.5);
     }
     // ==========================================
@@ -457,7 +467,32 @@ void Target::handle_outpost_update(const Armor & armor)
         outpost_base_height = 0.99 * outpost_base_height + 0.01 * estimated_base;
     }
 
-    // 更新状态
+    // ==========================================
+    // Layer 跳变抑制：新 layer 需连续出现 N 帧才确认切换
+    // ==========================================
+    if (final_layer != outpost_layer) {
+        if (final_layer == outpost_pending_layer) {
+            outpost_pending_count++;
+        } else {
+            outpost_pending_layer = final_layer;
+            outpost_pending_count = 1;
+        }
+        if (outpost_pending_count >= OUTPOST_LAYER_CONFIRM_COUNT) {
+            // 确认切换
+            outpost_layer = final_layer;
+            outpost_pending_layer = -1;
+            outpost_pending_count = 0;
+            is_switch_ = true;
+        } else {
+            // 未达确认帧数，保持旧 layer
+            final_layer = outpost_layer;
+        }
+    } else {
+        // layer 未变，重置 pending
+        outpost_pending_layer = -1;
+        outpost_pending_count = 0;
+    }
+
     this->outpost_layer = final_layer;
     if (final_layer != last_id) is_switch_ = true;
     last_id = final_layer;

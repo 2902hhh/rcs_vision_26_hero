@@ -30,12 +30,21 @@ public:
   int outpost_layer = 0; // 当前层级 (0, 1, 2)
   static constexpr double OUTPOST_HEIGHT_DIFF = 0.10; // 层间高度差 10cm
 
-  // 前哨站静止/旋转状态判定
+  // 前哨站静止/旋转状态判定 (基于观测角速度)
   bool outpost_is_static = false;       // 当前是否处于静止状态
   int outpost_static_count = 0;         // 连续静止帧计数
-  static constexpr double OUTPOST_STATIC_OMEGA_THRESH = 0.15;  // 静止判定角速度阈值 (rad/s)
-  static constexpr int OUTPOST_STATIC_ENTER_COUNT = 15;        // 进入静止状态所需连续帧数
-  static constexpr int OUTPOST_STATIC_EXIT_COUNT = 5;          // 退出静止状态所需连续帧数
+  double outpost_last_yaw = 0.0;        // 上一帧观测到的 yaw
+  bool outpost_last_yaw_valid = false;  // 上一帧 yaw 是否有效
+  double outpost_observed_omega = 0.0;  // 滑动平均观测角速度 (rad/s)
+  static constexpr double OUTPOST_STATIC_OMEGA_THRESH = 0.3;   // 静止判定角速度阈值 (rad/s)
+  static constexpr double OUTPOST_ROTATE_OMEGA_THRESH = 0.6;   // 旋转判定角速度阈值 (rad/s) — 滞回上界
+  static constexpr int OUTPOST_STATIC_ENTER_COUNT = 20;        // 进入静止状态所需连续帧数
+  static constexpr int OUTPOST_STATIC_EXIT_COUNT = 8;          // 退出静止状态所需连续帧数
+
+  // 前哨站 layer 跳变抑制
+  int outpost_pending_layer = -1;       // 待确认的新 layer
+  int outpost_pending_count = 0;        // 新 layer 连续出现帧数
+  static constexpr int OUTPOST_LAYER_CONFIRM_COUNT = 3; // 确认切换需要的连续帧数
   // ==========================
 
   Target() = default;
