@@ -382,7 +382,15 @@
 
       for (const [key, value] of Object.entries(json)) {
         if (key === 't') continue;
-        if (typeof value !== 'number') continue;
+        // 支持 number 和 boolean (boolean 转为 0/1)
+        let numValue;
+        if (typeof value === 'number') {
+          numValue = value;
+        } else if (typeof value === 'boolean') {
+          numValue = value ? 1 : 0;
+        } else {
+          continue;
+        }
 
         if (!(key in variables)) {
           // 新变量
@@ -392,15 +400,15 @@
             color: color,
             active: true,
             data: [],
-            lastValue: value,
+            lastValue: numValue,
           };
           addVarToList(key);
           addDatasetToChart(key, color);
         }
 
         const v = variables[key];
-        v.data.push({ x: t, y: value });
-        v.lastValue = value;
+        v.data.push({ x: t, y: numValue });
+        v.lastValue = numValue;
 
         // 裁剪旧数据
         if (v.data.length > MAX_POINTS) {
