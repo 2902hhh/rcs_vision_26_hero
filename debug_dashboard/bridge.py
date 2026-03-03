@@ -64,7 +64,7 @@ class UDPProtocol(asyncio.DatagramProtocol):
         self.loop = loop
 
     def datagram_received(self, data, addr):
-        global udp_packet_count
+        global udp_packet_count, ws_clients
         udp_packet_count += 1
 
         msg = data.decode("utf-8", errors="replace")
@@ -106,6 +106,7 @@ def start_http_server():
             pass  # 静默HTTP日志
 
     server = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), QuietHandler)
+    server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     print(f"[HTTP] 仪表盘: http://localhost:{HTTP_PORT}/index.html")
     server.serve_forever()
 
