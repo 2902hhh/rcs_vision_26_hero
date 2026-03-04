@@ -244,10 +244,15 @@ void Target::predict(double dt)
     return x_prior;
   };
 
-  // 前哨站转速软饱和（tanh 平滑限制，避免硬截断跳变）
+  // 前哨站转速软饱和：仅超过阈值时平滑限制，低转速零干预
   if (this->convergened() && this->name == ArmorName::outpost) {
     constexpr double max_omega = 2.51;
-    ekf_.x[7] = max_omega * std::tanh(ekf_.x[7] / (max_omega * 0.8));
+    constexpr double threshold = 2.0;
+    if (std::abs(ekf_.x[7]) > threshold) {
+      double sign = (ekf_.x[7] > 0) ? 1.0 : -1.0;
+      double excess = std::abs(ekf_.x[7]) - threshold;
+      ekf_.x[7] = sign * (threshold + (max_omega - threshold) * std::tanh(excess));
+    }
   }
 
   ekf_.predict(F, Q, f);
