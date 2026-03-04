@@ -242,56 +242,43 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   std::vector<Eigen::Vector4d> armor_xyza_list = target.armor_xyza_list();
   auto armor_num = armor_xyza_list.size();
 
-   // === 修改：如果是前哨站，还原高度差 ===
+  // === 前哨站：还原高度差 ===
   if (target.name == ArmorName::outpost) {
-      // 前哨站只有3块板，EKF输出的 xyza_list 是基于 Layer 0 (基准高度) 的
-      // 我们需要把高度加回去，以便解算器算出正确的 Pitch
       for (int i = 0; i < armor_num; i++) {
-          // 假设 i 对应 layer (0, 1, 2)
-          // OUTPOST_HEIGHT_DIFF = 0.10
-          armor_xyza_list[i][2] += i * target.OUTPOST_HEIGHT_DIFF; 
+          armor_xyza_list[i][2] += i * target.OUTPOST_HEIGHT_DIFF;
       }
   }
-  // ===================================
 
-    // === 前哨站锁定策略 ===
-  // if (target.name == ArmorName::outpost) {
-  //     // 策略：永远只瞄准 ID 0 (Layer 0)
-  //     // armor_xyza_list[0] 对应 ID 0
-      
-  //     // 1. 还原高度 (仅还原 ID 0)
-  //     // ID 0 通常是基准高度，offset = 0，不需要加
-  //     // 如果你想锁定 ID 1，就 armor_xyza_list[1][2] += 0.102;
-  //     Eigen::Vector4d target_armor = armor_xyza_list[0]; 
-      
-  //     // 2. 计算偏角
-  //     double center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
-  //     double delta = tools::limit_rad(target_armor[3] - center_yaw);
-      
-  //     // 3. 判断是否在攻击范围内
-  //     // coming_angle / leaving_angle 决定了开火窗口
-  //     // 比如只在正对枪口 +/- 15度范围内开火
-  //     // 注意：这里我们返回 {true/false, 坐标}
-  //     // true 表示“建议开火/跟踪”，false 表示“不可见/不建议”
-      
-  //     // 如果偏角太大，虽然返回坐标让云台跟着转，但在 Shooter 里会被拦截不开火
-  //     // 为了让云台提前预瞄（守株待兔），我们应该始终返回 true，让云台指着它
-      
-  //     // 但是！如果板子转到背面去了，云台还跟着转会撞限位或者打到立柱。
-  //     // 所以策略是：
-  //     //   - 如果在视野内 (如 +/- 60度)，跟踪。
-  //     //   - 如果转出去了，瞄准一个“预瞄点”（比如进入侧）。
-      
-  //     // 简化版：全程跟踪 ID 0
-  //     return {true, target_armor};
-  // }
+  // === 前哨站锁定单板策略（守株待兔） ===
+  if (target.name == ArmorName::outpost) {
+      constexpr int lock_id = 0;  // 固定锁定 ID 0（最低板）
+      constexpr double outpost_coming_angle = 70.0 / 57.3;  // 可见区域半角 70
 
+      Eigen::Vector4d target_armor = armor_xyza_list[lock_id];
+      double center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
+      double delta = tools::limit_rad(target_armor[3] - center_yaw);
 
+      if (std::abs(delta) < outpost_coming_angle) {
+          // 板子在可见区域  正常跟踪 + 允许开火
+          return {true, true, target_armor};
+      } else {
+          // 板子在背面  预瞄入口位置 + 禁止开火
+          double omega = ekf_x[7];
+          // 根据旋转方向确定板子将从哪侧转出来
+          double entry_delta = (omega > 0) ? -outpost_coming_angle : outpost_coming_angle;
+          double entry_yaw = center_yaw + entry_delta;
 
+          double r = ekf_x[8];
+          double entry_x = ekf_x[0] - r * std::cos(entry_yaw);
+          double entry_y = ekf_x[2] - r * std::sin(entry_yaw);
+          double entry_z = ekf_x[4] + lock_id * target.OUTPOST_HEIGHT_DIFF;
 
+          return {true, false, {entry_x, entry_y, entry_z, entry_yaw}};
+      }
+  }
 
   // 如果装甲板未发生过跳变，则只有当前装甲板的位置已知
-  if (!target.jumped) return {true, armor_xyza_list[0]};
+  if (!target.jumped) return {true, true, armor_xyza_list[0]};
 
   // 整车旋转中心的球坐标yaw
   auto center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
@@ -314,7 +301,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     // 绝无可能
     if (id_list.empty()) {
       tools::logger()->warn("Empty id list!");
-      return {false, armor_xyza_list[0]};
+      return {false, false, armor_xyza_list[0]};
     }
 
     // 锁定模式：防止在两个都呈45度的装甲板之间来回切换
@@ -325,31 +312,25 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       if (lock_id_ != id0 && lock_id_ != id1)
         lock_id_ = (std::abs(delta_angle_list[id0]) < std::abs(delta_angle_list[id1])) ? id0 : id1;
 
-      return {true, armor_xyza_list[lock_id_]};
+      return {true, true, armor_xyza_list[lock_id_]};
     }
 
     // 只有一个装甲板在可射击范围内时，退出锁定模式
     lock_id_ = -1;
-    return {true, armor_xyza_list[id_list[0]]};
+    return {true, true, armor_xyza_list[id_list[0]]};
   }
 
-  double coming_angle, leaving_angle;
-  if (target.name == ArmorName::outpost) {
-    coming_angle = 70 / 57.3; //70
-    leaving_angle = 30 / 57.3; //30
-  } else {
-    coming_angle = comming_angle_;
-    leaving_angle = leaving_angle_;
-  }
+  double coming_angle = comming_angle_;
+  double leaving_angle = leaving_angle_;
 
   // 在小陀螺时，一侧的装甲板不断出现，另一侧的装甲板不断消失，显然前者被打中的概率更高
   for (int i = 0; i < armor_num; i++) {
     if (std::abs(delta_angle_list[i]) > coming_angle) continue;
-    if (ekf_x[7] > 0 && delta_angle_list[i] < leaving_angle) return {true, armor_xyza_list[i]};
-    if (ekf_x[7] < 0 && delta_angle_list[i] > -leaving_angle) return {true, armor_xyza_list[i]};
+    if (ekf_x[7] > 0 && delta_angle_list[i] < leaving_angle) return {true, true, armor_xyza_list[i]};
+    if (ekf_x[7] < 0 && delta_angle_list[i] > -leaving_angle) return {true, true, armor_xyza_list[i]};
   }
 
-  return {false, armor_xyza_list[0]};
+  return {false, false, armor_xyza_list[0]};
 }
 
 }  // namespace auto_aim

@@ -16,6 +16,7 @@ namespace auto_aim
 struct AimPoint
 {
   bool valid;
+  bool shootable = true;  // 是否允许开火（预瞄模式下为 false）
   Eigen::Vector4d xyza;
 };
 

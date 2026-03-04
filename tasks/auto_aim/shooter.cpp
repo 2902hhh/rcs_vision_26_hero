@@ -65,8 +65,8 @@ bool Shooter::shoot(
   // === 新增: Pitch 对准 ===
   bool is_pitch_aimed = pitch_aim_error < tolerance;
 
-  // 弹道有效: Aimer 解算成功
-  bool is_valid = aimer.debug_aim_point.valid;
+  // 弹道有效: Aimer 解算成功且允许开火（前哨站预瞄模式下 shootable=false）
+  bool is_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable;
 
   // 6. 调试日志 (可选，防止刷屏可加计数器)
   static int debug_cnt = 0;
