@@ -303,23 +303,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     delta_angle_list.emplace_back(delta_angle);
   }
 
-  // ==========================================
-  // 前哨站静止时：按普通非陀螺目标处理
-  // 选择在可射击范围内、delta_angle 最小的装甲板（即最正面的板）
-  // ==========================================
-  if (target.name == ArmorName::outpost && target.outpost_is_static) {
-    // === 修复：静止时直接瞄准当前观测到的板 ===
-    // outpost_layer 由 handle_outpost_update 根据实际观测高度确定
-    // 不再依赖 delta_angle（EKF 预测角度），避免 yaw 误差导致选错板
-    int layer = target.outpost_layer;
-    if (layer >= 0 && layer < (int)armor_num) {
-      lock_id_ = -1;  // 重置锁定状态
-      return {true, armor_xyza_list[layer]};
-    }
-    return {false, armor_xyza_list[0]};
-  }
-
-  // 非小陀螺模式（普通装甲板且半径 r 较小，即未检测到旋转中心偏移）
+  // 不考虑小陀螺
   if (std::abs(target.ekf_x()[8]) <= 2 && target.name != ArmorName::outpost) {
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;

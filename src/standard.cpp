@@ -15,6 +15,7 @@
 #include "tools/exiter.hpp"
 #include "tools/img_tools.hpp"
 #include "tools/logger.hpp"
+#include "tools/debug_monitor.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/plotter.hpp"
 #include "tools/recorder.hpp"
@@ -107,6 +108,7 @@ int main(int argc, char * argv[])
     
     gimbal.send(command);
 
+    WATCH("fire",command.shoot);
     // ==================== 可视化代码开始 ====================
     if (enable_display) {
         // 克隆一份图像用于绘制，避免影响原图处理
@@ -211,7 +213,7 @@ int main(int argc, char * argv[])
     }
     // ==================== 可视化代码结束 ====================
 
-   // FLUSH_DEBUG();
+   FLUSH_DEBUG();
 
   }
 
