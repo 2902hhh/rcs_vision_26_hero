@@ -249,32 +249,74 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       }
   }
 
-  // === 前哨站锁定单板策略（守株待兔） ===
+  // === 前哨站攻击策略 ===
   if (target.name == ArmorName::outpost) {
-      constexpr int lock_id = 0;  // 固定锁定 ID 0（最低板）
-      constexpr double outpost_coming_angle = 70.0 / 57.3;  // 可见区域半角 70
-
-      Eigen::Vector4d target_armor = armor_xyza_list[lock_id];
+      constexpr double outpost_coming_angle = 70.0 / 57.3;  // 可见区域半角 70°
       double center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
-      double delta = tools::limit_rad(target_armor[3] - center_yaw);
+      double omega = ekf_x[7];
 
-      if (std::abs(delta) < outpost_coming_angle) {
-          // 板子在可见区域  正常跟踪 + 允许开火
-          return {true, true, target_armor};
-      } else {
-          // 板子在背面  预瞄入口位置 + 禁止开火
-          double omega = ekf_x[7];
-          // 根据旋转方向确定板子将从哪侧转出来
-          double entry_delta = (omega > 0) ? -outpost_coming_angle : outpost_coming_angle;
-          double entry_yaw = center_yaw + entry_delta;
-
-          double r = ekf_x[8];
-          double entry_x = ekf_x[0] - r * std::cos(entry_yaw);
-          double entry_y = ekf_x[2] - r * std::sin(entry_yaw);
-          double entry_z = ekf_x[4] + lock_id * target.OUTPOST_HEIGHT_DIFF;
-
-          return {true, false, {entry_x, entry_y, entry_z, entry_yaw}};
+      // --- 停转检测：角速度极小时退化为普通选板逻辑 ---
+      if (std::abs(omega) < 0.1) {
+          // 前哨站停转，选偏角最小（最正对）的板
+          int best_id = 0;
+          double min_abs_delta = 1e10;
+          for (int i = 0; i < armor_num; i++) {
+              double d = std::abs(tools::limit_rad(armor_xyza_list[i][3] - center_yaw));
+              if (d < min_abs_delta) { min_abs_delta = d; best_id = i; }
+          }
+          if (min_abs_delta < outpost_coming_angle) {
+              return {true, true, armor_xyza_list[best_id]};
+          }
+          return {false, false, armor_xyza_list[best_id]};
       }
+
+      // --- 动态选板：选择最先进入可见区域的板子 ---
+      // 第一阶段：优先选已在可见区内、偏角最小的板
+      int visible_best = -1;
+      double min_visible_delta = 1e10;
+      for (int i = 0; i < armor_num; i++) {
+          double d = std::abs(tools::limit_rad(armor_xyza_list[i][3] - center_yaw));
+          if (d < outpost_coming_angle && d < min_visible_delta) {
+              min_visible_delta = d;
+              visible_best = i;
+          }
+      }
+
+      if (visible_best >= 0) {
+          // 有板子在可见区 → 跟踪 + 允许开火
+          return {true, true, armor_xyza_list[visible_best]};
+      }
+
+      // 第二阶段：全部不可见，选等待时间最短的板并预瞄入口
+      int best_id = 0;
+      double min_wait = 1e10;
+      constexpr double two_pi_3 = 2.0 * CV_PI / 3.0;  // 120° 周期
+      for (int i = 0; i < armor_num; i++) {
+          double delta = tools::limit_rad(armor_xyza_list[i][3] - center_yaw);
+          // 板子需要转到 coming_angle 边界才可见
+          // omega > 0 逆时针转: 板子 delta 增大，进入可见区需 delta 到 -coming_angle
+          // omega < 0 顺时针转: 板子 delta 减小，进入可见区需 delta 到 +coming_angle
+          double angle_to_entry;
+          if (omega > 0) {
+              angle_to_entry = tools::limit_rad(-outpost_coming_angle - delta);
+              if (angle_to_entry < 0) angle_to_entry += 2 * CV_PI;
+          } else {
+              angle_to_entry = tools::limit_rad(delta - outpost_coming_angle);
+              if (angle_to_entry < 0) angle_to_entry += 2 * CV_PI;
+          }
+          double wait = angle_to_entry / std::abs(omega);
+          if (wait < min_wait) { min_wait = wait; best_id = i; }
+      }
+
+      // 预瞄入口位置
+      double entry_delta = (omega > 0) ? -outpost_coming_angle : outpost_coming_angle;
+      double entry_yaw = center_yaw + entry_delta;
+      double r = ekf_x[8];
+      double entry_x = ekf_x[0] - r * std::cos(entry_yaw);
+      double entry_y = ekf_x[2] - r * std::sin(entry_yaw);
+      double entry_z = ekf_x[4] + best_id * target.OUTPOST_HEIGHT_DIFF;
+
+      return {true, false, {entry_x, entry_y, entry_z, entry_yaw}};
   }
 
   // 如果装甲板未发生过跳变，则只有当前装甲板的位置已知

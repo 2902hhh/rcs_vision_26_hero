@@ -244,9 +244,11 @@ void Target::predict(double dt)
     return x_prior;
   };
 
-  // 前哨站转速特判
-  if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
-    this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
+  // 前哨站转速软饱和（tanh 平滑限制，避免硬截断跳变）
+  if (this->convergened() && this->name == ArmorName::outpost) {
+    constexpr double max_omega = 2.51;
+    ekf_.x[7] = max_omega * std::tanh(ekf_.x[7] / (max_omega * 0.8));
+  }
 
   ekf_.predict(F, Q, f);
 }
@@ -402,10 +404,11 @@ void Target::handle_outpost_update(const Armor & armor)
     }
 
     // 更新基准高度 (仅当 ID 判定可信时)
-    // 这里的平滑系数 0.01 可以让基准高度缓慢适应地形变化
+    // Layer 0 时更激进校准（直接观测基准层），其他层级慢速跟随
     if (final_layer >= 0 && final_layer <= 2) {
         double estimated_base = current_z - final_layer * OUTPOST_HEIGHT_DIFF;
-        outpost_base_height = 0.99 * outpost_base_height + 0.01 * estimated_base;
+        double alpha = (final_layer == 0) ? 0.05 : 0.01;
+        outpost_base_height = (1.0 - alpha) * outpost_base_height + alpha * estimated_base;
     }
 
     // 更新状态
