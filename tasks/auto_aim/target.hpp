@@ -57,6 +57,7 @@ private:
   int armor_num_;
   int switch_count_;
   int update_count_;
+  std::vector<double> outpost_z_history_;
 
   bool is_switch_, is_converged_;
 

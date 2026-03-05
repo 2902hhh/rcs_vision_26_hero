@@ -290,7 +290,6 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       // 第二阶段：全部不可见，选等待时间最短的板并预瞄入口
       int best_id = 0;
       double min_wait = 1e10;
-      constexpr double two_pi_3 = 2.0 * CV_PI / 3.0;  // 120° 周期
       for (int i = 0; i < armor_num; i++) {
           double delta = tools::limit_rad(armor_xyza_list[i][3] - center_yaw);
           // 板子需要转到 coming_angle 边界才可见

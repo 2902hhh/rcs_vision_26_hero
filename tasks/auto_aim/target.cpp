@@ -326,20 +326,34 @@ void Target::handle_outpost_update(const Armor & armor)
     // 1. 初始化基准高度 (保持你的原逻辑)
     // ==========================================
     if (!outpost_initialized) {
-        static std::vector<double> z_history;
-        z_history.push_back(current_z);
-        if (z_history.size() > 30) { 
-            std::sort(z_history.begin(), z_history.end());
-            // 取较小值作为基准
-            outpost_base_height = z_history[6]; 
-            outpost_initialized = true;
-            tools::logger()->info("Outpost Init Base: {:.3f}", outpost_base_height);
-            
-            // 初始化时强制重置半径
-            ekf_.x[8] = 0.2765;
+      outpost_z_history_.push_back(current_z);
+      if (outpost_z_history_.size() > 30) {
+        std::sort(outpost_z_history_.begin(), outpost_z_history_.end());
+        // 取较小值作为基准
+        outpost_base_height = outpost_z_history_[6];
+        outpost_initialized = true;
+        outpost_z_history_.clear();
+        tools::logger()->info("Outpost Init Base: {:.3f}", outpost_base_height);
+
+        // 初始化时强制重置半径
+        ekf_.x[8] = 0.2765;
+      }
+
+      // 初始化阶段也按相位匹配当前观测板，避免硬编码 id=0 导致先验偏置
+      int init_id = 0;
+      double pred_yaw_base = ekf_.x[6];
+      double min_yaw_diff = 1e10;
+      for (int id = 0; id < 3; ++id) {
+        double yaw_if_id = tools::limit_rad(current_yaw + id * 2.0 * CV_PI / 3.0);
+        double diff_val = std::abs(tools::limit_rad(yaw_if_id - pred_yaw_base));
+        if (diff_val < min_yaw_diff) {
+          min_yaw_diff = diff_val;
+          init_id = id;
         }
-        update_ypda(armor, 0); 
-        return;
+      }
+
+      update_ypda(armor, init_id);
+      return;
     }
 
     // ==========================================

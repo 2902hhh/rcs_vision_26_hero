@@ -4,7 +4,7 @@
 
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
-
+#include "tools/debug_monitor.hpp"
 namespace auto_aim
 {
 Shooter::Shooter(const std::string & config_path) : last_command_{false, false, 0, 0}
@@ -80,6 +80,9 @@ bool Shooter::shoot(
       );
   }
 
+
+  WATCH("yaw_diff",yaw_aim_error);
+  WATCH("pitch_diff",pitch_aim_error);
   // 7. 最终开火判据
   // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
   // 修改后: 加入 is_pitch_aimed
