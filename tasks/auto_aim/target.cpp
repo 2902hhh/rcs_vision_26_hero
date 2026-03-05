@@ -343,69 +343,48 @@ void Target::handle_outpost_update(const Armor & armor)
     }
 
     // ==========================================
-    // 2. 基于高度计算物理层级 (Physical Layer)
+    // 2. 层级判定：相位主导，高度兜底
     // ==========================================
+    // 仅靠 current_z 会受“单块板自转导致的高度起伏”影响，容易在 0/1/2 层间跳变。
+    // 这里改为：收敛后优先用 yaw 相位判层，Z 只用于排除明显不合理结果。
+
+    // 先算一个高度候选层（仅做兜底）
     double diff = current_z - outpost_base_height;
     int raw_layer = std::round(diff / OUTPOST_HEIGHT_DIFF);
-    // 钳制在 0~2 (这是仅基于 Z 轴的猜测)
     int height_layer = std::max(0, std::min(2, raw_layer));
+
+    // 再算相位候选层（主判据）
+    double pred_yaw_base = ekf_.x[6];
+    int yaw_layer = last_id;
+    double min_yaw_diff = 1e10;
+    for (int id = 0; id < 3; ++id) {
+      double yaw_if_id = tools::limit_rad(current_yaw + id * 2.0 * CV_PI / 3.0);
+      double diff_val = std::abs(tools::limit_rad(yaw_if_id - pred_yaw_base));
+      if (diff_val < min_yaw_diff) {
+        min_yaw_diff = diff_val;
+        yaw_layer = id;
+      }
+    }
 
     int final_layer = height_layer;
 
-    // ==========================================
-    // 3. 相位保护机制 (Phase Protection)
-    // ==========================================
-    // 只有当滤波器运行了几 5 帧后，预测的角度才可信
-    if (update_count_ > 10) {
-        
-        // [Existing Variable] ekf_.x[6] 
-        // 这里的 x[6] 已经是经过 predict() 后的值，即当前时刻的预测角度
-        double pred_yaw_base = ekf_.x[6]; 
+    // 早期阶段（刚初始化）先用高度，避免相位尚未稳定时误判
+    if (update_count_ > 5) {
+      final_layer = yaw_layer;
 
-        // [New Variable] 寻找与预测角度最接近的 ID
-        int best_id = height_layer;
-        double min_yaw_diff = 100.0; // 初始化为一个较大值
+      // 只在“相位结果被 Z 严重反对”时回退到高度候选
+      // 0.25m 约等于 2.5 层，阈值更宽，避免 Z 抖动频繁抢回控制权。
+      double z_if_yaw = current_z - final_layer * OUTPOST_HEIGHT_DIFF;
+      double z_error = std::abs(z_if_yaw - outpost_base_height);
+      if (z_error > 0.25) {
+        final_layer = height_layer;
+      }
 
-        // 遍历可能的 ID (0, 1, 2)
-        for (int id = 0; id < 3; ++id) {
-            // 假设当前板子是 id，算出它对应的 "Layer 0 基准角度"
-            // 公式：Obs_Yaw_Base = Obs_Yaw + id * 120度
-            double yaw_if_id = tools::limit_rad(current_yaw + id * 2.0 * CV_PI / 3.0);
-            
-            // 计算这个假设与 EKF 预测值的偏差
-            double diff_val = std::abs(tools::limit_rad(yaw_if_id - pred_yaw_base));
-            
-            if (diff_val < min_yaw_diff) {
-                min_yaw_diff = diff_val;
-                best_id = id;
-            }
-        }
-
-        // ==========================================
-        // 4. 冲突处理 (Conflict Resolution)
-        // ==========================================
-        // 如果 Z轴计算的 ID 和 角度计算的 ID 不一致
-        if (best_id != height_layer) {
-            // 检查 Z 轴是否严重反对 best_id
-            // 如果按照 best_id 修正，Z 轴误差是多少？
-            double z_if_best = current_z - best_id * OUTPOST_HEIGHT_DIFF;
-            double z_error = std::abs(z_if_best - outpost_base_height);
-
-            // 0.15m 是容差阈值 (层高是 0.1m，如果误差超过 1.5层，说明 Z 轴太离谱或者角度计算错了)
-            // 如果误差在可接受范围内 (< 0.15)，我们坚定地信任角度 (best_id)
-            if (z_error < 0.2) {
-                // [Log] 记录一次基于相位的修正，方便调试
-                if (update_count_ % 20 == 0) { 
-                     tools::logger()->debug("Outpost Phase Fix: Z-ID {} -> Yaw-ID {}", height_layer, best_id);
-                }
-                final_layer = best_id;
-            } else {
-                // 如果 Z 轴误差实在太大，可能发生了基准高度漂移或者识别错误，保留 Z 轴的结果
-                final_layer = height_layer;
-            }
-        } else {
-            final_layer = best_id; // 一致，直接用
-        }
+      if (final_layer != yaw_layer && update_count_ % 20 == 0) {
+        tools::logger()->debug(
+          "Outpost Layer Fallback: Yaw-ID {} -> Z-ID {}, z_err={:.3f}", yaw_layer,
+          height_layer, z_error);
+      }
     }
 
     // 更新基准高度 (仅当 ID 判定可信时)
