@@ -255,9 +255,11 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       double center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
       double omega = ekf_x[7];
 
-      // --- 停转检测：角速度极小时退化为普通选板逻辑 ---
-      if (std::abs(omega) < 0.1) {
-          // 前哨站停转，选偏角最小（最正对）的板
+      // --- 停转/低速检测：角速度极小时退化为静态选板逻辑 ---
+      // 阈值 0.4 统一覆盖停转和低速边界，避免 omega 在 0.1~0.4 时
+      // wait_time 计算退化（angle / 极小omega → 极大等待时间）
+      if (std::abs(omega) < 0.4) {
+          // 前哨站停转/低速，选偏角最小（最正对）的板
           int best_id = 0;
           double min_abs_delta = 1e10;
           for (int i = 0; i < armor_num; i++) {

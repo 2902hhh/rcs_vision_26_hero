@@ -353,6 +353,7 @@ void Target::handle_outpost_update(const Armor & armor)
       }
 
       update_ypda(armor, init_id);
+      update_count_++;
       return;
     }
 
