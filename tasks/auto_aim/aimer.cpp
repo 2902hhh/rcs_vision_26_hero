@@ -285,8 +285,14 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       }
 
       if (visible_best >= 0) {
-          // 有板子在可见区 → 跟踪 + 允许开火
-          return {true, true, armor_xyza_list[visible_best]};
+          // 有板子在可见区 → 判断是否即将离开
+          double delta = tools::limit_rad(armor_xyza_list[visible_best][3] - center_yaw);
+          // 板子正在远离中心 = 即将离开可见区
+          // omega > 0 逆时针: delta 增大方向为离开（delta > 0 时）
+          // omega < 0 顺时针: delta 减小方向为离开（delta < 0 时）
+          bool is_leaving = (omega > 0 && delta > leaving_angle_) ||
+                            (omega < 0 && delta < -leaving_angle_);
+          return {true, !is_leaving, armor_xyza_list[visible_best]};
       }
 
       // 第二阶段：全部不可见，选等待时间最短的板并预瞄入口

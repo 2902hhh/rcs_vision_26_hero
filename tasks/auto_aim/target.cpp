@@ -434,7 +434,12 @@ void Target::handle_outpost_update(const Armor & armor)
 
     // 更新状态
     this->outpost_layer = final_layer;
-    if (final_layer != last_id) is_switch_ = true;
+    if (final_layer != last_id) {
+      is_switch_ = true;
+      switch_count_++;
+    } else {
+      is_switch_ = false;
+    }
     last_id = final_layer;
 
     // ==========================================
