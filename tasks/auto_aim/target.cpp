@@ -401,6 +401,28 @@ void Target::handle_outpost_update(const Armor & armor)
       }
     }
 
+    // ==========================================
+    // 3.5 层级迟滞：候选层需连续若干帧一致才切换
+    // ==========================================
+    if (final_layer == last_id) {
+      outpost_layer_candidate_ = final_layer;
+      outpost_layer_candidate_count_ = 0;
+    } else {
+      if (outpost_layer_candidate_ != final_layer) {
+        outpost_layer_candidate_ = final_layer;
+        outpost_layer_candidate_count_ = 1;
+      } else {
+        outpost_layer_candidate_count_++;
+      }
+
+      if (outpost_layer_candidate_count_ < OUTPOST_LAYER_HYST_FRAMES) {
+        final_layer = last_id;
+      } else {
+        final_layer = outpost_layer_candidate_;
+        outpost_layer_candidate_count_ = 0;
+      }
+    }
+
     // 更新基准高度 (仅当 ID 判定可信时)
     // Layer 0 时更激进校准（直接观测基准层），其他层级慢速跟随
     if (final_layer >= 0 && final_layer <= 2) {

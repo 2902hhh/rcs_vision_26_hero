@@ -58,6 +58,9 @@ private:
   int switch_count_;
   int update_count_;
   std::vector<double> outpost_z_history_;
+  int outpost_layer_candidate_ = 0;
+  int outpost_layer_candidate_count_ = 0;
+  static constexpr int OUTPOST_LAYER_HYST_FRAMES = 2;
 
   bool is_switch_, is_converged_;
 

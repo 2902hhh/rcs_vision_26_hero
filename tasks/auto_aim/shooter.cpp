@@ -81,8 +81,8 @@ bool Shooter::shoot(
   }
 
 
-  WATCH("yaw_diff",yaw_aim_error);
-  WATCH("pitch_diff",pitch_aim_error);
+  WATCH("yaw_diff",yaw_aim_error*57.3);
+  WATCH("pitch_diff",pitch_aim_error*57.3);
   // 7. 最终开火判据
   // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
   // 修改后: 加入 is_pitch_aimed
