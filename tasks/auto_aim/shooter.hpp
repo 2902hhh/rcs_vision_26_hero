@@ -1,6 +1,7 @@
 #ifndef AUTO_AIM__SHOOTER_HPP
 #define AUTO_AIM__SHOOTER_HPP
 
+#include <chrono>
 #include <string>
 
 #include "io/command.hpp"
@@ -23,6 +24,8 @@ private:
   double first_tolerance_;
   double second_tolerance_;
   bool auto_fire_;
+  double fire_cooldown_;
+  std::chrono::steady_clock::time_point last_fire_time_;
 };
 }  // namespace auto_aim
 
