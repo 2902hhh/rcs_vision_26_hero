@@ -4,7 +4,7 @@
 
 #include <cmath>
 #include <vector>
-
+#include "tools/debug_monitor.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/trajectory.hpp"
@@ -41,8 +41,9 @@ io::Command Aimer::aim(
     target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
 
   // 针对英雄机器人大弹丸射速较低的情况进行保护，避免除以0或弹道无解
-  if (bullet_speed < 12) bullet_speed = 12;
-
+  if (bullet_speed < 12) bullet_speed = 16;
+  bullet_speed = 16;
+   WATCH("bullet_speed", bullet_speed);
   // 考虑detecor和tracker所消耗的时间，此外假设aimer的用时可忽略不计
   auto future = timestamp;
   if (to_now) {
@@ -205,7 +206,7 @@ io::Command Aimer::aim(
   cmd.pitch_vel = pitch_vel;
   cmd.yaw_acc = yaw_acc;
   cmd.pitch_acc = pitch_acc;
-  
+  WATCH("target_yaw_deg", yaw * 57.3);
   // 填充调试用的目标状态信息 (可选)
   // cmd.target_x = x;
   // cmd.target_y = y;
@@ -231,6 +232,7 @@ io::Command Aimer::aim(
   }
 
   auto command = aim(targets, timestamp, bullet_speed, to_now);
+
   command.yaw = command.yaw - yaw_offset_ + yaw_offset;
 
   return command;
@@ -241,18 +243,6 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   Eigen::VectorXd ekf_x = target.ekf_x();
   std::vector<Eigen::Vector4d> armor_xyza_list = target.armor_xyza_list();
   auto armor_num = armor_xyza_list.size();
-
-   // === 修改：如果是前哨站，还原高度差 ===
-  if (target.name == ArmorName::outpost) {
-      // 前哨站只有3块板，EKF输出的 xyza_list 是基于 Layer 0 (基准高度) 的
-      // 我们需要把高度加回去，以便解算器算出正确的 Pitch
-      for (int i = 0; i < armor_num; i++) {
-          // 假设 i 对应 layer (0, 1, 2)
-          // OUTPOST_HEIGHT_DIFF = 0.10
-          armor_xyza_list[i][2] += i * target.OUTPOST_HEIGHT_DIFF; 
-      }
-  }
-  // ===================================
 
     // === 前哨站锁定策略 ===
   // if (target.name == ArmorName::outpost) {
@@ -341,7 +331,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     coming_angle = comming_angle_;
     leaving_angle = leaving_angle_;
   }
-
+WATCH("rad",std::abs(target.ekf_x()[7]));
   // 在小陀螺时，一侧的装甲板不断出现，另一侧的装甲板不断消失，显然前者被打中的概率更高
   for (int i = 0; i < armor_num; i++) {
     if (std::abs(delta_angle_list[i]) > coming_angle) continue;

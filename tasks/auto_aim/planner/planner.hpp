@@ -36,8 +36,12 @@ public:
   Eigen::Vector4d debug_xyza;
   Planner(const std::string & config_path);
 
-  Plan plan(Target target, double bullet_speed);
-  Plan plan(std::optional<Target> target, double bullet_speed);
+  Plan plan(Target target, double bullet_speed,
+           double gimbal_yaw, double gimbal_yaw_vel,
+           double gimbal_pitch, double gimbal_pitch_vel);
+  Plan plan(std::optional<Target> target, double bullet_speed,
+           double gimbal_yaw, double gimbal_yaw_vel,
+           double gimbal_pitch, double gimbal_pitch_vel);
 
 private:
   double yaw_offset_;

@@ -4,10 +4,12 @@
 
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
+#include "tools/debug_monitor.hpp"
 
 namespace auto_aim
 {
-Shooter::Shooter(const std::string & config_path) : last_command_{false, false, 0, 0}
+Shooter::Shooter(const std::string & config_path)
+: last_command_{false, false, 0, 0}, last_fire_time_{}
 {
   auto yaml = YAML::LoadFile(config_path);
   // 读取配置参数并转换为弧度 (degree -> rad)
@@ -15,6 +17,7 @@ Shooter::Shooter(const std::string & config_path) : last_command_{false, false, 
   second_tolerance_ = yaml["second_tolerance"].as<double>() / 57.3;
   judge_distance_ = yaml["judge_distance"].as<double>();
   auto_fire_ = yaml["auto_fire"].as<bool>();
+  fire_cooldown_ = yaml["fire_cooldown"].as<double>();
 }
 
 bool Shooter::shoot(
@@ -33,7 +36,15 @@ bool Shooter::shoot(
 
          return false;
   }
- 
+
+  // 1.5 开火静默：上次开火后 fire_cooldown_ 秒内不允许再次开火
+  auto now = std::chrono::steady_clock::now();
+  double since_last_fire =
+    std::chrono::duration<double>(now - last_fire_time_).count();
+  if (since_last_fire < fire_cooldown_) {
+    last_command_ = command;
+    return false;
+  }
 
   // 2. 计算目标距离 (水平距离近似)
   auto target_x = targets.front().ekf_x()[0];
@@ -60,7 +71,7 @@ bool Shooter::shoot(
   bool is_yaw_stable = yaw_cmd_diff < tolerance * 2;
   
   // Yaw 对准: 实际 Yaw 误差小于容忍度
-  bool is_yaw_aimed = yaw_aim_error < tolerance;
+  bool is_yaw_aimed = yaw_aim_error < 0.3/57.3; // 固定0.2度的Yaw对准要求，防止过于宽松导致误伤
 
   // === 新增: Pitch 对准 ===
   bool is_pitch_aimed = pitch_aim_error < tolerance;
@@ -79,11 +90,14 @@ bool Shooter::shoot(
           (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid)
       );
   }
-
+  WATCH("yaw_diff",yaw_aim_error*57.3);
+  WATCH("pitch_diff",pitch_aim_error*57.3);
+  
   // 7. 最终开火判据
   // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
   // 修改后: 加入 is_pitch_aimed
   if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid) {
+    last_fire_time_ = now;
     last_command_ = command;
     return true; // 允许开火
   }

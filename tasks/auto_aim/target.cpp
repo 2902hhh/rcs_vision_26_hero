@@ -19,10 +19,7 @@ Target::Target(
   t_(t),
   is_switch_(false),
   is_converged_(false),
-  switch_count_(0),
-  outpost_initialized(false),
-  outpost_base_height(0.0),
-  outpost_layer(0)
+  switch_count_(0)
 {
   auto r = radius;
   priority = armor.priority;
@@ -136,55 +133,7 @@ void Target::predict(std::chrono::steady_clock::time_point t)
   t_ = t;
 }
 
-void Target::print_outpost_debug_info()
-{
-    if (name != ArmorName::outpost) return;
 
-    // 1. 半径检查 (Radius)
-    // 理想值 0.2765，如果偏差 > 2cm 说明没锁住
-    double r = ekf_.x[8];
-    bool r_stable = std::abs(r - 0.2765) < 0.02;
-
-    // 2. 角速度检查 (Omega)
-    // 前哨站通常转速在 0.4 ~ 0.8 rad/s 之间
-    // 如果 > 2.0 说明发散，如果 ~0 说明没跟上
-    double omega = ekf_.x[7];
-    
-    // 3. 角度残差检查 (Innovation)
-    // 我们手动算一下：预测的 Layer 0 角度 vs 观测反解的 Layer 0 角度
-    // 如果这个差值很大，说明 EKF 正在剧烈修正
-    // 注意：这里需要拿到最新的 armor 和 id，通常在 update 函数里算比较方便，这里只能打印状态
-    
-    // 4. 高度基准 (Base Height)
-    double base_h = outpost_base_height;
-
-    // 5. 当前层级 (Layer)
-    int layer = outpost_layer;
-
-    // 6. EKF 协方差 (P Matrix) - 检查收敛度
-    // P(6,6) 是 Yaw 的方差，P(7,7) 是 Omega 的方差
-    double p_yaw = ekf_.P(6, 6);
-    double p_omega = ekf_.P(7, 7);
-
-    // === 打印日志 ===
-    // 格式: [Outpost] L:层级 | R:半径(状态) | W:角速度 | BaseZ:基准高 | Py:Yaw方差
-    tools::logger()->info(
-        "[Outpost] L:{} | R:{:.4f} ({}) | W:{:.3f} | BaseZ:{:.3f} | P_Yaw:{:.5f}",
-        layer, 
-        r, (r_stable ? "OK" : "BAD"), 
-        omega, 
-        base_h, 
-        p_yaw
-    );
-
-    // 报警逻辑
-    if (!r_stable) {
-        tools::logger()->warn("  >>> RADIUS DRIFT! Force Reset Recommended.");
-    }
-    if (p_yaw > 0.1) { // 0.1 rad^2 很大了
-        tools::logger()->warn("  >>> YAW UNSTABLE! P_Yaw > 0.1");
-    }
-}
 
 
 
@@ -214,7 +163,7 @@ void Target::predict(double dt)
     v1 = 1e-3;   // 前哨站加速度方差
     v2 = 100;  // 前哨站角加速度方差
   } else {
-    v1 = 100;  // 加速度方差
+    v1 = 10;  // 加速度方差
     v2 = 400;  // 角加速度方差
   }
   auto a = dt * dt * dt * dt / 4;
@@ -230,10 +179,10 @@ void Target::predict(double dt)
     {     0,      0,      0,      0, a * v1, b * v1,      0,      0, 0, 0, 0},
     {     0,      0,      0,      0, b * v1, c * v1,      0,      0, 0, 0, 0},
     {     0,      0,      0,      0,      0,      0, a * v2, b * v2, 0, 0, 0},
-    {     0,      0,      0,      0,      0,      0, b * v2, c * v2, 0, 0, 0},
-    {     0,      0,      0,      0,      0,      0,      0,      0, 0, 0, 0},
-    {     0,      0,      0,      0,      0,      0,      0,      0, 0, 0, 0},
-    {     0,      0,      0,      0,      0,      0,      0,      0, 0, 0, 0}
+    {     0,      0,      0,      0,      0,      0, b * v2, c * v2,    0,    0,    0},
+    {     0,      0,      0,      0,      0,      0,      0,      0, 1e-4,    0,    0},
+    {     0,      0,      0,      0,      0,      0,      0,      0,    0, 1e-4,    0},
+    {     0,      0,      0,      0,      0,      0,      0,      0,    0,    0, 1e-4}
   };
   // clang-format on
 
@@ -248,18 +197,17 @@ void Target::predict(double dt)
   if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
+  // 前哨站半径锁定（固定机械结构，不允许 EKF 估计）
+  if (this->name == ArmorName::outpost) {
+    this->ekf_.x[8] = 0.2765;
+    this->ekf_.P(8, 8) = 1e-10;
+  }
+
   ekf_.predict(F, Q, f);
 }
 
 void Target::update(const Armor & armor)
 {
-    // === 修改：如果是前哨站，走特殊逻辑 ===
-  if (this->name == ArmorName::outpost) {
-      handle_outpost_update(armor);
-      return; // 前哨站逻辑处理完直接返回，跳过常规流程
-  }
-  // ===================================
-
   // 装甲板匹配
   int id;
   auto min_angle_error = 1e10;
@@ -307,133 +255,6 @@ void Target::update(const Armor & armor)
   update_ypda(armor, id);
 }
 
-// === 新增：前哨站处理逻辑 ===
-// 在 target.cpp 中替换 handle_outpost_update
-
-void Target::handle_outpost_update(const Armor & armor)
-{
-    double current_z = armor.xyz_in_world[2];
-    double current_yaw = armor.ypr_in_world[0];
-
-    // ==========================================
-    // 1. 初始化基准高度 (保持你的原逻辑)
-    // ==========================================
-    if (!outpost_initialized) {
-        static std::vector<double> z_history;
-        z_history.push_back(current_z);
-        if (z_history.size() > 30) { 
-            std::sort(z_history.begin(), z_history.end());
-            // 取较小值作为基准
-            outpost_base_height = z_history[6]; 
-            outpost_initialized = true;
-            tools::logger()->info("Outpost Init Base: {:.3f}", outpost_base_height);
-            
-            // 初始化时强制重置半径
-            ekf_.x[8] = 0.2765;
-        }
-        update_ypda(armor, 0); 
-        return;
-    }
-
-    // ==========================================
-    // 2. 基于高度计算物理层级 (Physical Layer)
-    // ==========================================
-    double diff = current_z - outpost_base_height;
-    int raw_layer = std::round(diff / OUTPOST_HEIGHT_DIFF);
-    // 钳制在 0~2 (这是仅基于 Z 轴的猜测)
-    int height_layer = std::max(0, std::min(2, raw_layer));
-
-    int final_layer = height_layer;
-
-    // ==========================================
-    // 3. 相位保护机制 (Phase Protection)
-    // ==========================================
-    // 只有当滤波器运行了几 5 帧后，预测的角度才可信
-    if (update_count_ > 10) {
-        
-        // [Existing Variable] ekf_.x[6] 
-        // 这里的 x[6] 已经是经过 predict() 后的值，即当前时刻的预测角度
-        double pred_yaw_base = ekf_.x[6]; 
-
-        // [New Variable] 寻找与预测角度最接近的 ID
-        int best_id = height_layer;
-        double min_yaw_diff = 100.0; // 初始化为一个较大值
-
-        // 遍历可能的 ID (0, 1, 2)
-        for (int id = 0; id < 3; ++id) {
-            // 假设当前板子是 id，算出它对应的 "Layer 0 基准角度"
-            // 公式：Obs_Yaw_Base = Obs_Yaw + id * 120度
-            double yaw_if_id = tools::limit_rad(current_yaw + id * 2.0 * CV_PI / 3.0);
-            
-            // 计算这个假设与 EKF 预测值的偏差
-            double diff_val = std::abs(tools::limit_rad(yaw_if_id - pred_yaw_base));
-            
-            if (diff_val < min_yaw_diff) {
-                min_yaw_diff = diff_val;
-                best_id = id;
-            }
-        }
-
-        // ==========================================
-        // 4. 冲突处理 (Conflict Resolution)
-        // ==========================================
-        // 如果 Z轴计算的 ID 和 角度计算的 ID 不一致
-        if (best_id != height_layer) {
-            // 检查 Z 轴是否严重反对 best_id
-            // 如果按照 best_id 修正，Z 轴误差是多少？
-            double z_if_best = current_z - best_id * OUTPOST_HEIGHT_DIFF;
-            double z_error = std::abs(z_if_best - outpost_base_height);
-
-            // 0.15m 是容差阈值 (层高是 0.1m，如果误差超过 1.5层，说明 Z 轴太离谱或者角度计算错了)
-            // 如果误差在可接受范围内 (< 0.15)，我们坚定地信任角度 (best_id)
-            if (z_error < 0.2) {
-                // [Log] 记录一次基于相位的修正，方便调试
-                if (update_count_ % 20 == 0) { 
-                     tools::logger()->debug("Outpost Phase Fix: Z-ID {} -> Yaw-ID {}", height_layer, best_id);
-                }
-                final_layer = best_id;
-            } else {
-                // 如果 Z 轴误差实在太大，可能发生了基准高度漂移或者识别错误，保留 Z 轴的结果
-                final_layer = height_layer;
-            }
-        } else {
-            final_layer = best_id; // 一致，直接用
-        }
-    }
-
-    // 更新基准高度 (仅当 ID 判定可信时)
-    // 这里的平滑系数 0.01 可以让基准高度缓慢适应地形变化
-    if (final_layer >= 0 && final_layer <= 2) {
-        double estimated_base = current_z - final_layer * OUTPOST_HEIGHT_DIFF;
-        outpost_base_height = 0.99 * outpost_base_height + 0.01 * estimated_base;
-    }
-
-    // 更新状态
-    this->outpost_layer = final_layer;
-    if (final_layer != last_id) is_switch_ = true;
-    last_id = final_layer;
-
-    // ==========================================
-    // 5. 修正观测值并送入 EKF
-    // ==========================================
-    Armor virtual_armor = armor;
-    // 强行将 Z 轴拉回 Layer 0 的平面
-    virtual_armor.xyz_in_world[2] = current_z - final_layer * OUTPOST_HEIGHT_DIFF;
-    // 重新计算 ypd (距离 Distance 和 Pitch 会因此改变，这很重要)
-    virtual_armor.ypd_in_world = tools::xyz2ypd(virtual_armor.xyz_in_world);
-
-    // 强制锁定半径 (你的原逻辑)
-    ekf_.x[8] = 0.2765;
-    ekf_.P(8, 8) = 1e-10; 
-
-    update_ypda(virtual_armor, final_layer);
-    //check_abnormal_state(armor, final_layer);
-    update_count_++;
-
-    print_outpost_debug_info();
-}
-
-
 void Target::update_ypda(const Armor & armor, int id)
 {
   Eigen::MatrixXd H = h_jacobian(ekf_.x, id);
@@ -459,9 +280,9 @@ void Target::update_ypda(const Armor & armor, int id)
       // 原代码计算 delta_angle 的方式
       auto center_yaw = std::atan2(armor.xyz_in_world[1], armor.xyz_in_world[0]);
       auto delta_angle = tools::limit_rad(armor.ypr_in_world[0] - center_yaw);
-      
+      // 增大 yaw/pitch 观测噪声以抑制抖动 (原值 6e-3 过小)
       Eigen::VectorXd R_dig{
-        {4e-3, 4e-3, 
+        {0.1, 0.1, 
          log(std::abs(delta_angle) + 1) + 1,
          log(std::abs(armor.ypd_in_world[2]) + 1) / 200 + 9e-2}
       };
@@ -473,17 +294,8 @@ void Target::update_ypda(const Armor & armor, int id)
     Eigen::VectorXd xyz = h_armor_xyz(x, id);
     Eigen::VectorXd ypd = tools::xyz2ypd(xyz);
     
-    // 注意：这里需要区分 顺时针/逆时针 或者 通用逻辑
-    // 如果普通装甲板也是顺时针排布 (120度)，用减号没问题
-    // 如果普通装甲板没有顺序要求 (比如步兵4块板)，通常用加号
-    // 建议：统一用减号，或者在这里再加个 if
-    double angle;
-    if (name == ArmorName::outpost) {
-        angle = tools::limit_rad(x[6] - id * 2 * CV_PI / armor_num_); // 顺时针
-    } else {
-        // 假设步兵/英雄是逆时针排布 (0, 1, 2, 3)
-        angle = tools::limit_rad(x[6] + id * 2 * CV_PI / armor_num_); 
-    }
+    // 与 h_armor_xyz / h_jacobian 保持一致，统一使用减号
+    double angle = tools::limit_rad(x[6] - id * 2 * CV_PI / armor_num_);
     
     return {ypd[0], ypd[1], ypd[2], angle};
   };
@@ -524,9 +336,9 @@ std::vector<Eigen::Vector4d> Target::armor_xyza_list() const
 
 bool Target::diverged() const
 {
-  auto r_ok = ekf_.x[8] > 0.05 && ekf_.x[8] < 0.5;
+  auto r_ok = ekf_.x[8] > 0.05 && ekf_.x[8] < 0.9;
 
-  auto l_ok = ekf_.x[8] + ekf_.x[9] > 0.05 && ekf_.x[8] + ekf_.x[9] < 0.5;
+  auto l_ok = ekf_.x[8] + ekf_.x[9] > 0.05 && ekf_.x[8] + ekf_.x[9] < 0.9;
 
    if (r_ok && l_ok) return false;
   //if (r_ok) return false;
@@ -558,6 +370,11 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto armor_x = x[0] - r * std::cos(angle);
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
+
+  // 前哨站：三块装甲板物理上有固定高度差，ID 0/1/2 分别偏移 0/10/20cm
+  if (name == ArmorName::outpost) {
+    armor_z = x[4] + id * 0.10;
+  }
 
   return {armor_x, armor_y, armor_z};
 }

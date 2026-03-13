@@ -83,7 +83,7 @@ std::list<Target> Tracker::track(
   if (
     std::accumulate(
       target_.ekf().recent_nis_failures.begin(), target_.ekf().recent_nis_failures.end(), 0) >=
-    (0.55 * target_.ekf().window_size)) {
+    (0.45 * target_.ekf().window_size)) {
     tools::logger()->debug("[Target] Bad Converge Found!");
     state_ = "lost";
     return {};
