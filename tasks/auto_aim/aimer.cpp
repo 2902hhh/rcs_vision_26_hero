@@ -301,7 +301,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     delta_angle_list.emplace_back(delta_angle);
   }
 
-  WATCH(“rad”, std::abs(target.ekf_x()[7]));
+  WATCH("rad", std::abs(target.ekf_x()[7]));
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
   if (std::abs(target.ekf_x()[7]) <= 2 && target.name != ArmorName::outpost) {
@@ -314,7 +314,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     }
     // 绝无可能
     if (id_list.empty()) {
-      tools::logger()->warn(“Empty id list!”);
+      tools::logger()->warn("Empty id list!");
       return {false, armor_xyza_list[0]};
     }
 
@@ -392,8 +392,8 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       (CV_PI - track_face_angle) : (CV_PI + track_face_angle);
     Eigen::Vector2d aim_point2d = calculate_rotate_point2d(car_middle, radius, rotate_angle);
 
-    WATCH(“aim_preview”, 1);
-    WATCH(“track_face_angle_deg”, track_face_angle * 57.3);
+    WATCH("aim_preview", 1);
+    WATCH("track_face_angle_deg", track_face_angle * 57.3);
 
     return {true, Eigen::Vector4d(aim_point2d.x(), height, aim_point2d.y(), 0)};
   }
