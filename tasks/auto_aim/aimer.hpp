@@ -51,6 +51,14 @@ private:
   double static_track_face_angle_;        // 静态追踪角度（从配置读取）
   double max_stability_track_rotate_speed_; // 云台最大稳定追踪角速度
 
+  // ========== 新增：策略类型选择 ==========
+  enum class SpinStrategy {
+    preview,        // 预瞄模式
+    coming_leaving, // Coming/Leaving模式
+    adaptive        // 自适应模式（根据转速自动选择）
+  };
+  SpinStrategy spin_strategy_;                // 策略类型
+
   AimPoint choose_aim_point(const Target & target);
 
   // ========== 新增：预瞄相关方法 ==========

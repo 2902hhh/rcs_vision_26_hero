@@ -31,6 +31,19 @@ Aimer::Aimer(const std::string & config_path)
   // ========== 新增：预瞄配置参数 ==========
   static_track_face_angle_ = yaml["static_track_face_angle"].as<double>(15.0) / 57.3; // 默认15度
   max_stability_track_rotate_speed_ = yaml["max_stability_track_rotate_speed"].as<double>(3.0); // 默认3 rad/s
+
+  // ========== 新增：策略类型选择 ==========
+  std::string strategy_str = yaml["spin_strategy"].as<std::string>("adaptive");
+  if (strategy_str == "preview") {
+    spin_strategy_ = SpinStrategy::preview;
+    tools::logger()->info("[Aimer] Spin strategy: preview (强制预瞄)");
+  } else if (strategy_str == "coming_leaving") {
+    spin_strategy_ = SpinStrategy::coming_leaving;
+    tools::logger()->info("[Aimer] Spin strategy: coming_leaving (强制Coming/Leaving)");
+  } else {
+    spin_strategy_ = SpinStrategy::adaptive;
+    tools::logger()->info("[Aimer] Spin strategy: adaptive (自适应)");
+  }
 }
 
 io::Command Aimer::aim(
@@ -367,8 +380,21 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     Eigen::Vector2d::Zero(), car_middle,
     Eigen::Vector2d(sorted_armors[1].first[0], sorted_armors[1].first[1]));
 
-  // ========== 预瞄判断：追踪角度小于当前装甲板角度 ==========
-  if (track_face_angle < shortest_face_angle && track_face_angle < next_face_angle) {
+  // ========== 策略选择：根据配置决定使用预瞄还是Coming/Leaving ==========
+  bool use_preview = false;
+
+  if (spin_strategy_ == SpinStrategy::preview) {
+    // 强制使用预瞄模式
+    use_preview = true;
+  } else if (spin_strategy_ == SpinStrategy::coming_leaving) {
+    // 强制使用 Coming/Leaving 模式
+    use_preview = false;
+  } else {
+    // 自适应模式：根据角度判断
+    use_preview = (track_face_angle < shortest_face_angle && track_face_angle < next_face_angle);
+  }
+
+  if (use_preview) {
     aim_preview_ = true;
 
     // 确定左右装甲板

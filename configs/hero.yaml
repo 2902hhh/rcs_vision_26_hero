@@ -79,6 +79,15 @@ decision_speed: 2  # rad/s
 high_speed_delay_time: 0.00 # s
 low_speed_delay_time: 0.00 # s
 
+#####-----小陀螺策略参数-----#####
+# 可选策略: "preview" / "coming_leaving" / "adaptive"
+# preview: 预瞄模式，云台提前指向装甲板即将出现的位置（守株待兔）
+# coming_leaving: 根据旋转方向选择coming/leaving的装甲板
+# adaptive: 根据转速和角度自动选择最优策略
+spin_strategy: "adaptive"
+static_track_face_angle: 15  # 预瞄追踪角度，degree
+max_stability_track_rotate_speed: 3.0  # 云台最大稳定追踪角速度，rad/s
+
 #####-----shooter参数-----#####
 first_tolerance: 2 # 近距离射击容差，degree
 second_tolerance: 0.5 # 远距离射击容差，degree
