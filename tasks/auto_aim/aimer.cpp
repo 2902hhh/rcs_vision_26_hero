@@ -301,7 +301,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     delta_angle_list.emplace_back(delta_angle);
   }
 
-  WATCH("rad", std::abs(target.ekf_x()[7]));
+  WATCH("rad", target.ekf_x()[7]);
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
   if (std::abs(target.ekf_x()[7]) <= 2 && target.name != ArmorName::outpost) {
