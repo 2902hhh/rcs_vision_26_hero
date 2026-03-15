@@ -261,6 +261,13 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   std::vector<Eigen::Vector4d> armor_xyza_list = target.armor_xyza_list();
   auto armor_num = armor_xyza_list.size();
 
+  // 兜底保护：预瞄逻辑至少需要两块装甲板
+  if (armor_num < 2) {
+    aim_preview_ = false;
+    if (armor_num == 1) return {true, armor_xyza_list[0]};
+    return {false, Eigen::Vector4d::Zero()};
+  }
+
     // === 前哨站锁定策略 ===
   // if (target.name == ArmorName::outpost) {
   //     // 策略：永远只瞄准 ID 0 (Layer 0)
