@@ -120,10 +120,6 @@ std::list<Armor> YOLOV5::parse(
   for (int r = 0; r < output.rows; r++) {
     if (is_standard_detect) {
         // --- 逻辑分支 A: 弹丸/标准检测模型 ---
-        // 格式通常为: [cx, cy, w, h, conf, class_score...]
-        // 注意：OpenVINO 导出的 raw output 可能没做 sigmoid，视导出参数而定。
-        // 这里假设是标准的 flat output
-        
         float conf = output.at<float>(r, 4);
         if (conf < min_confidence_) continue; // 使用配置文件的置信度
 
@@ -157,20 +153,27 @@ std::list<Armor> YOLOV5::parse(
     } else {
         // --- 逻辑分支 B: 原有装甲板 Pose 模型 ---
         double score = output.at<float>(r, 8);
-        score = sigmoid(score);
+        
+        // 【修改点 1】：智能 Sigmoid 判断
+        // 如果导出的模型没有做 Sigmoid（值不在 0~1 之间），则手动 Sigmoid
+        // 如果已经做过 Sigmoid，再次计算会导致高置信度被压低（如 0.9 变成 0.71）
+        if (score < 0.0 || score > 1.0) {
+            score = sigmoid(score);
+        }
 
         if (score < score_threshold_) continue;
 
         std::vector<cv::Point2f> armor_key_points;
 
-        //颜色和类别独热向量
-        cv::Mat color_scores = output.row(r).colRange(9, 13);     //color
-        cv::Mat classes_scores = output.row(r).colRange(13, 22);  //num
+        // 颜色和类别独热向量
+        cv::Mat color_scores = output.row(r).colRange(9, 13);     // color
+        cv::Mat classes_scores = output.row(r).colRange(13, 22);  // num
         cv::Point class_id, color_id;
         double score_color, score_num;
         cv::minMaxLoc(classes_scores, NULL, &score_num, NULL, &class_id);
         cv::minMaxLoc(color_scores, NULL, &score_color, NULL, &color_id);
         
+        // 关键点顺序转换：模型输出为逆时针，这里 push_back 转换为顺时针 (TL, TR, BR, BL)
         armor_key_points.push_back(
           cv::Point2f(output.at<float>(r, 0) / scale, output.at<float>(r, 1) / scale));
         armor_key_points.push_back(
@@ -190,8 +193,32 @@ std::list<Armor> YOLOV5::parse(
 
         cv::Rect rect(min_x, min_y, max_x - min_x, max_y - min_y);
 
-        color_ids.emplace_back(color_id.x);
-        num_ids.emplace_back(class_id.x);
+        // 【修改点 2】：颜色 ID 映射适配
+        // 模型输出: 0红, 1蓝, 2灰, 3紫 -> 框架期望: 0蓝, 1红, 2灰
+        int mapped_color = 0; 
+        if (color_id.x == 0) mapped_color = 1;      // 红
+        else if (color_id.x == 1) mapped_color = 0; // 蓝
+        else mapped_color = 2;                      // 灰/紫
+
+        // 【修改点 3】：类别 ID 映射适配
+        // 模型输出: 0:G, 1:1, 2:2, 3:3, 4:4, 5:5, 6:O, 7:Bs, 8:Bb
+        // 框架期望: 0:1, 1:2, 2:3, 3:4, 4:5, 5:Outpost, 6:Sentry, 7:Base
+        int mapped_num = 0;
+        switch(class_id.x) {
+            case 0: mapped_num = 6; break; // G (哨兵) -> 框架的 6
+            case 1: mapped_num = 0; break; // 1号 -> 框架的 0
+            case 2: mapped_num = 1; break; // 2号 -> 框架的 1
+            case 3: mapped_num = 2; break; // 3号 -> 框架的 2
+            case 4: mapped_num = 3; break; // 4号 -> 框架的 3
+            case 5: mapped_num = 4; break; // 5号 -> 框架的 4
+            case 6: mapped_num = 5; break; // O (前哨站) -> 框架的 5
+            case 7: mapped_num = 7; break; // Bs (基地小) -> 框架的 7
+            case 8: mapped_num = 7; break; // Bb (基地大) -> 框架的 7
+            default: mapped_num = 0; break;
+        }
+
+        color_ids.emplace_back(mapped_color);
+        num_ids.emplace_back(mapped_num);
         boxes.emplace_back(rect);
         confidences.emplace_back(score);
         armors_key_points.emplace_back(armor_key_points);
