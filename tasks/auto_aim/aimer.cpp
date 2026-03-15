@@ -421,7 +421,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     WATCH("aim_preview", 1);
     WATCH("track_face_angle_deg", track_face_angle * 57.3);
 
-    return {true, Eigen::Vector4d(aim_point2d.x(), height, aim_point2d.y(), 0)};
+    return {true, Eigen::Vector4d(aim_point2d.x(), aim_point2d.y(), height, 0)};
   }
   // ========== 不需要预瞄：直接瞄准最近装甲板 ==========
   else {
