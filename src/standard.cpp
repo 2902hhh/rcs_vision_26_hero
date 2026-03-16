@@ -15,6 +15,7 @@
 #include "tools/exiter.hpp"
 #include "tools/img_tools.hpp"
 #include "tools/logger.hpp"
+#include "tools/debug_monitor.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/plotter.hpp"
 #include "tools/recorder.hpp"
@@ -99,14 +100,17 @@ int main(int argc, char * argv[])
 
     // 2. 追踪
     auto targets = tracker.track(armors, t);
-
+       
     // 3. 瞄准
     auto command = aimer.aim(targets, t, gs.bullet_speed);
 
     command.shoot = shooter.shoot(command, aimer, targets, ypr); 
     
+    WATCH("fire", command.shoot);
+
     gimbal.send(command);
 
+    WATCH("fire",command.shoot);
     // ==================== 可视化代码开始 ====================
     if (enable_display) {
         // 克隆一份图像用于绘制，避免影响原图处理
@@ -124,18 +128,15 @@ int main(int argc, char * argv[])
             // 显示装甲板名称 / 前哨站层级
             std::string text_info = auto_aim::ARMOR_NAMES[armor.name];
             
-            // === 修改：前哨站层级显示 ===
+            // === 前哨站层级显示 ===
             if (armor.name == auto_aim::ArmorName::outpost && !targets.empty()) {
                 auto t = targets.front();
-                if (t.outpost_initialized) {
-                    // 反算当前是哪一层 (L0, L1, L2)
-                    double diff = armor.xyz_in_world[2] - t.outpost_base_height;
-                    // 0.10 是层间高度差
-                    int layer = std::round(diff / 0.10);
-                    text_info += fmt::format(" L{}", layer);
-                } else {
-                    text_info += " Init...";
-                }
+                // 用 EKF 状态中的 z (ID 0 基准高度) 计算层级
+                double base_z = t.ekf_x()[4];
+                double diff = armor.xyz_in_world[2] - base_z;
+                int layer = std::round(diff / 0.10);
+                layer = std::max(0, std::min(2, layer));
+                text_info += fmt::format(" L{}", layer);
             }
             // ============================
 
@@ -147,19 +148,8 @@ int main(int argc, char * argv[])
             auto target = targets.front();
             
             // 获取目标所有装甲板的预测位置 (世界坐标系)
-            // 注意：target.armor_xyza_list() 返回的是 EKF 的状态。
-            // 对于前哨站，我们在 EKF 里抹平了高度差，所以这里拿到的 z 都是一样的（基准层）。
+            // 前哨站的 armor_xyza_list() 已包含正确的高度偏移
             std::vector<Eigen::Vector4d> predicted_armors = target.armor_xyza_list();
-            
-            // === 修改：前哨站预测高度还原 ===
-            // 为了在图像上正确画出螺旋上升的板子，我们需要手动把高度加回去
-            if (target.name == auto_aim::ArmorName::outpost) {
-                // 前哨站有3块板，ID 分别为 0, 1, 2
-                for(int i = 0; i < 3 && i < predicted_armors.size(); i++) {
-                    predicted_armors[i][2] += i * 0.10; // 还原 0cm, 10cm, 20cm 高度差
-                }
-            }
-            // ==================================
             
             for (const auto & xyza : predicted_armors) {
                 // 关键步骤：重投影 (Reprojection)
@@ -175,9 +165,9 @@ int main(int argc, char * argv[])
             std::string state_info = fmt::format("State: {} | ID: {}", tracker.state(), auto_aim::ARMOR_NAMES[target.name]);
             tools::draw_text(vis_img, state_info, {20, 80}, {0, 255, 255}, 1.0, 2);
             
-            // 显示前哨站基准高度信息 (调试用)
+            // 显示前哨站调试信息
             if (target.name == auto_aim::ArmorName::outpost) {
-                 tools::draw_text(vis_img, fmt::format("Base H: {:.2f}m", target.outpost_base_height), {20, 110}, {0, 255, 255}, 0.8, 2);
+                 tools::draw_text(vis_img, fmt::format("EKF Z: {:.2f}m", target.ekf_x()[4]), {20, 110}, {0, 255, 255}, 0.8, 2);
             }
         }
 
@@ -210,6 +200,10 @@ int main(int argc, char * argv[])
         }
     }
     // ==================== 可视化代码结束 ====================
+
+    FLUSH_DEBUG();
+
+
   }
 
   return 0;

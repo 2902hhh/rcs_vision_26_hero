@@ -32,6 +32,9 @@ public:
     std::list<Target> targets, std::chrono::steady_clock::time_point timestamp, double bullet_speed,
     io::ShootMode shoot_mode, bool to_now = true);
 
+  // ========== 新增：获取预瞄状态（供Shooter使用）==========
+  bool get_aim_preview() const { return aim_preview_; }
+
 private:
   double yaw_offset_;
   std::optional<double> left_yaw_offset_, right_yaw_offset_;
@@ -43,7 +46,40 @@ private:
   double low_speed_delay_time_;
   double decision_speed_;
 
+  // ========== 新增：预瞄相关成员 ==========
+  bool aim_preview_ = false;              // 是否处于预瞄模式
+  double static_track_face_angle_;        // 静态追踪角度（从配置读取）
+  double max_stability_track_rotate_speed_; // 云台最大稳定追踪角速度
+
+  // ========== 新增：策略类型选择 ==========
+  enum class SpinStrategy {
+    preview,        // 预瞄模式
+    coming_leaving, // Coming/Leaving模式
+    adaptive        // 自适应模式（根据转速自动选择）
+  };
+  SpinStrategy spin_strategy_;                // 策略类型
+
+  // ========== 小陀螺状态判断 (带平滑和滞回) ==========
+  bool is_spinning_ = false;       // 当前是否处于小陀螺模式
+  double smoothed_omega_ = 0.0;    // 平滑后的角速度绝对值
+  double spin_enter_speed_;        // 进入小陀螺模式的平滑角速度阈值 (rad/s)
+  double spin_exit_speed_;         // 退出小陀螺模式的平滑角速度阈值 (rad/s)
+  double omega_smooth_alpha_;      // 角速度EMA平滑系数 (0~1, 越大越跟随原始值)
+  void update_spin_state(double raw_omega);
+
   AimPoint choose_aim_point(const Target & target);
+
+  // ========== 新增：预瞄相关方法 ==========
+  // 计算旋转后的预瞄点位置
+  Eigen::Vector2d calculate_rotate_point2d(
+      const Eigen::Vector2d& car_middle, double radius, double rotate_angle) const;
+  // 计算三点角度（取绝对值）
+  double calculate_angle_abs(
+      const Eigen::Vector2d& A, const Eigen::Vector2d& B, const Eigen::Vector2d& C) const;
+  // 自适应计算追踪角度（三分法）
+  double adaptive_calculate_track_face_angle(double rotate_speed_abs) const;
+  // 计算旋转代价函数
+  double calculate_rotate_cost(double track_face_angle, double rotate_speed_abs) const;
 };
 
 }  // namespace auto_aim

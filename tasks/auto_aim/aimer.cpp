@@ -4,7 +4,7 @@
 
 #include <cmath>
 #include <vector>
-
+#include "tools/debug_monitor.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/trajectory.hpp"
@@ -22,10 +22,44 @@ Aimer::Aimer(const std::string & config_path)
   high_speed_delay_time_ = yaml["high_speed_delay_time"].as<double>();
   low_speed_delay_time_ = yaml["low_speed_delay_time"].as<double>();
   decision_speed_ = yaml["decision_speed"].as<double>();
+  // 小陀螺状态判断参数 (带平滑和滞回)
+  spin_enter_speed_ =
+    yaml["spin_enter_speed"].IsDefined() ? yaml["spin_enter_speed"].as<double>() : 2.5;
+  spin_exit_speed_ =
+    yaml["spin_exit_speed"].IsDefined() ? yaml["spin_exit_speed"].as<double>() : 1.5;
+  omega_smooth_alpha_ =
+    yaml["omega_smooth_alpha"].IsDefined() ? yaml["omega_smooth_alpha"].as<double>() : 0.2;
   if (yaml["left_yaw_offset"].IsDefined() && yaml["right_yaw_offset"].IsDefined()) {
     left_yaw_offset_ = yaml["left_yaw_offset"].as<double>() / 57.3;    // degree to rad
     right_yaw_offset_ = yaml["right_yaw_offset"].as<double>() / 57.3;  // degree to rad
     tools::logger()->info("[Aimer] successfully loading shootmode");
+  }
+
+  // ========== 新增：预瞄配置参数 ==========
+  static_track_face_angle_ = yaml["static_track_face_angle"].as<double>(15.0) / 57.3; // 默认15度
+  max_stability_track_rotate_speed_ = yaml["max_stability_track_rotate_speed"].as<double>(3.0); // 默认3 rad/s
+
+  // ========== 新增：策略类型选择 ==========
+  std::string strategy_str = yaml["spin_strategy"].as<std::string>("adaptive");
+  if (strategy_str == "preview") {
+    spin_strategy_ = SpinStrategy::preview;
+    tools::logger()->info("[Aimer] Spin strategy: preview (强制预瞄)");
+  } else if (strategy_str == "coming_leaving") {
+    spin_strategy_ = SpinStrategy::coming_leaving;
+    tools::logger()->info("[Aimer] Spin strategy: coming_leaving (强制Coming/Leaving)");
+  } else {
+    spin_strategy_ = SpinStrategy::adaptive;
+    tools::logger()->info("[Aimer] Spin strategy: adaptive (自适应)");
+  }
+}
+
+void Aimer::update_spin_state(double raw_omega)
+{
+  smoothed_omega_ = omega_smooth_alpha_ * raw_omega + (1.0 - omega_smooth_alpha_) * smoothed_omega_;
+  if (!is_spinning_ && smoothed_omega_ > spin_enter_speed_) {
+    is_spinning_ = true;
+  } else if (is_spinning_ && smoothed_omega_ < spin_exit_speed_) {
+    is_spinning_ = false;
   }
 }
 
@@ -36,13 +70,17 @@ io::Command Aimer::aim(
   if (targets.empty()) return {false, false, 0, 0};
   auto target = targets.front();
 
+  // 更新平滑角速度和小陀螺状态 (每帧仅更新一次，在迭代之前)
+  update_spin_state(std::abs(target.ekf_x()[7]));
+
   auto ekf = target.ekf();
   double delay_time =
-    target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
+    smoothed_omega_ > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
 
   // 针对英雄机器人大弹丸射速较低的情况进行保护，避免除以0或弹道无解
-  if (bullet_speed < 12) bullet_speed = 12;
-
+  if (bullet_speed < 12) bullet_speed = 16;
+  bullet_speed = 16;
+   WATCH("bullet_speed", bullet_speed);
   // 考虑detecor和tracker所消耗的时间，此外假设aimer的用时可忽略不计
   auto future = timestamp;
   if (to_now) {
@@ -205,7 +243,7 @@ io::Command Aimer::aim(
   cmd.pitch_vel = pitch_vel;
   cmd.yaw_acc = yaw_acc;
   cmd.pitch_acc = pitch_acc;
-  
+  WATCH("target_yaw_deg", yaw * 57.3);
   // 填充调试用的目标状态信息 (可选)
   // cmd.target_x = x;
   // cmd.target_y = y;
@@ -231,6 +269,7 @@ io::Command Aimer::aim(
   }
 
   auto command = aim(targets, timestamp, bullet_speed, to_now);
+
   command.yaw = command.yaw - yaw_offset_ + yaw_offset;
 
   return command;
@@ -242,46 +281,41 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   std::vector<Eigen::Vector4d> armor_xyza_list = target.armor_xyza_list();
   auto armor_num = armor_xyza_list.size();
 
-   // === 修改：如果是前哨站，还原高度差 ===
-  if (target.name == ArmorName::outpost) {
-      // 前哨站只有3块板，EKF输出的 xyza_list 是基于 Layer 0 (基准高度) 的
-      // 我们需要把高度加回去，以便解算器算出正确的 Pitch
-      for (int i = 0; i < armor_num; i++) {
-          // 假设 i 对应 layer (0, 1, 2)
-          // OUTPOST_HEIGHT_DIFF = 0.10
-          armor_xyza_list[i][2] += i * target.OUTPOST_HEIGHT_DIFF; 
-      }
+  // 兜底保护：预瞄逻辑至少需要两块装甲板
+  if (armor_num < 2) {
+    aim_preview_ = false;
+    if (armor_num == 1) return {true, armor_xyza_list[0]};
+    return {false, Eigen::Vector4d::Zero()};
   }
-  // ===================================
 
     // === 前哨站锁定策略 ===
   // if (target.name == ArmorName::outpost) {
   //     // 策略：永远只瞄准 ID 0 (Layer 0)
   //     // armor_xyza_list[0] 对应 ID 0
-      
+
   //     // 1. 还原高度 (仅还原 ID 0)
   //     // ID 0 通常是基准高度，offset = 0，不需要加
   //     // 如果你想锁定 ID 1，就 armor_xyza_list[1][2] += 0.102;
-  //     Eigen::Vector4d target_armor = armor_xyza_list[0]; 
-      
+  //     Eigen::Vector4d target_armor = armor_xyza_list[0];
+
   //     // 2. 计算偏角
   //     double center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
   //     double delta = tools::limit_rad(target_armor[3] - center_yaw);
-      
+
   //     // 3. 判断是否在攻击范围内
   //     // coming_angle / leaving_angle 决定了开火窗口
   //     // 比如只在正对枪口 +/- 15度范围内开火
   //     // 注意：这里我们返回 {true/false, 坐标}
-  //     // true 表示“建议开火/跟踪”，false 表示“不可见/不建议”
-      
+  //     // true 表示”建议开火/跟踪”，false 表示”不可见/不建议”
+
   //     // 如果偏角太大，虽然返回坐标让云台跟着转，但在 Shooter 里会被拦截不开火
   //     // 为了让云台提前预瞄（守株待兔），我们应该始终返回 true，让云台指着它
-      
+
   //     // 但是！如果板子转到背面去了，云台还跟着转会撞限位或者打到立柱。
   //     // 所以策略是：
   //     //   - 如果在视野内 (如 +/- 60度)，跟踪。
-  //     //   - 如果转出去了，瞄准一个“预瞄点”（比如进入侧）。
-      
+  //     //   - 如果转出去了，瞄准一个”预瞄点”（比如进入侧）。
+
   //     // 简化版：全程跟踪 ID 0
   //     return {true, target_armor};
   // }
@@ -291,10 +325,14 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
 
   // 如果装甲板未发生过跳变，则只有当前装甲板的位置已知
-  if (!target.jumped) return {true, armor_xyza_list[0]};
+  if (!target.jumped) {
+    aim_preview_ = false;
+    return {true, armor_xyza_list[0]};
+  }
 
   // 整车旋转中心的球坐标yaw
   auto center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
+  Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
 
   // 如果delta_angle为0，则该装甲板中心和整车中心的连线在世界坐标系的xy平面过原点
   std::vector<double> delta_angle_list;
@@ -303,35 +341,13 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     delta_angle_list.emplace_back(delta_angle);
   }
 
-  // ==========================================
-  // 前哨站静止时：按普通非陀螺目标处理
-  // 选择在可射击范围内、delta_angle 最小的装甲板（即最正面的板）
-  // ==========================================
-  if (target.name == ArmorName::outpost && target.outpost_is_static) {
-    std::vector<int> id_list;
-    for (int i = 0; i < armor_num; i++) {
-      if (std::abs(delta_angle_list[i]) > 60 / 57.3) continue;
-      id_list.push_back(i);
-    }
-    if (id_list.empty()) {
-      tools::logger()->warn("[Aimer] Outpost static: no visible armor!");
-      return {false, armor_xyza_list[0]};
-    }
+  WATCH("rad", target.ekf_x()[7]);
+  WATCH("smoothed_omega", smoothed_omega_);
+  WATCH("is_spinning", is_spinning_ ? 1 : 0);
 
-    // 锁定模式：静止时选最正面的板，避免在两板间来回切换
-    if (id_list.size() > 1) {
-      int id0 = id_list[0], id1 = id_list[1];
-      if (lock_id_ != id0 && lock_id_ != id1)
-        lock_id_ = (std::abs(delta_angle_list[id0]) < std::abs(delta_angle_list[id1])) ? id0 : id1;
-      return {true, armor_xyza_list[lock_id_]};
-    }
-
-    lock_id_ = -1;
-    return {true, armor_xyza_list[id_list[0]]};
-  }
-
-  // 非小陀螺模式（普通装甲板且半径 r 较小，即未检测到旋转中心偏移）
-  if (std::abs(target.ekf_x()[8]) <= 2 && target.name != ArmorName::outpost) {
+  // ========== 策略1：非小陀螺 (基于平滑角速度和滞回判定) ==========
+  if (!is_spinning_ && target.name != ArmorName::outpost) {
+    aim_preview_ = false;
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
     for (int i = 0; i < armor_num; i++) {
@@ -360,23 +376,173 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     return {true, armor_xyza_list[id_list[0]]};
   }
 
-  double coming_angle, leaving_angle;
-  if (target.name == ArmorName::outpost) {
-    coming_angle = 70 / 57.3; //70
-    leaving_angle = 30 / 57.3; //30
+  // ========== 策略2：小陀螺 - 启用预瞄机制 ==========
+  double rotate_speed_abs = std::abs(ekf_x[7]);
+  double rotate_speed_rpm = rotate_speed_abs * 30 / CV_PI;
+
+  // ========== 预瞄角度计算 ==========
+  double track_face_angle;
+  if (rotate_speed_rpm < 60) {
+    // 中速：自适应计算追踪角度
+    track_face_angle = adaptive_calculate_track_face_angle(rotate_speed_abs);
   } else {
-    coming_angle = comming_angle_;
-    leaving_angle = leaving_angle_;
+    // 高速：使用静态追踪角度
+    track_face_angle = static_track_face_angle_;
   }
 
-  // 在小陀螺时，一侧的装甲板不断出现，另一侧的装甲板不断消失，显然前者被打中的概率更高
+  // 计算两块最近装甲板与枪口的角度
+  // 按距离排序
+  std::vector<std::pair<Eigen::Vector4d, int>> sorted_armors;
   for (int i = 0; i < armor_num; i++) {
-    if (std::abs(delta_angle_list[i]) > coming_angle) continue;
-    if (ekf_x[7] > 0 && delta_angle_list[i] < leaving_angle) return {true, armor_xyza_list[i]};
-    if (ekf_x[7] < 0 && delta_angle_list[i] > -leaving_angle) return {true, armor_xyza_list[i]};
+    sorted_armors.push_back({armor_xyza_list[i], i});
+  }
+  std::sort(sorted_armors.begin(), sorted_armors.end(),
+    [](const auto& a, const auto& b) {
+      return Eigen::Vector2d(a.first[0], a.first[1]).norm() <
+             Eigen::Vector2d(b.first[0], b.first[1]).norm();
+    });
+
+  double shortest_face_angle = calculate_angle_abs(
+    Eigen::Vector2d::Zero(), car_middle,
+    Eigen::Vector2d(sorted_armors[0].first[0], sorted_armors[0].first[1]));
+  double next_face_angle = calculate_angle_abs(
+    Eigen::Vector2d::Zero(), car_middle,
+    Eigen::Vector2d(sorted_armors[1].first[0], sorted_armors[1].first[1]));
+
+  // ========== 策略选择：根据配置决定使用预瞄还是Coming/Leaving ==========
+  bool use_preview = false;
+
+  if (spin_strategy_ == SpinStrategy::preview) {
+    // 强制使用预瞄模式
+    use_preview = true;
+  } else if (spin_strategy_ == SpinStrategy::coming_leaving) {
+    // 强制使用 Coming/Leaving 模式
+    use_preview = false;
+  } else {
+    // 自适应模式：根据角度判断
+    use_preview = (track_face_angle < shortest_face_angle && track_face_angle < next_face_angle);
   }
 
-  return {false, armor_xyza_list[0]};
+  if (use_preview) {
+    aim_preview_ = true;
+
+    // 确定左右装甲板
+    Eigen::Vector4d left_point, right_point;
+    if (sorted_armors[0].first[0] < sorted_armors[1].first[0]) {
+      left_point = sorted_armors[0].first;
+      right_point = sorted_armors[1].first;
+    } else {
+      left_point = sorted_armors[1].first;
+      right_point = sorted_armors[0].first;
+    }
+
+    // 确定高度（根据旋转方向）
+    double height = ekf_x[7] > 0 ? left_point[2] : right_point[2];
+    double radius = (ekf_x[8] + ekf_x[9]) / 2; // 半径取均值
+
+    // ========== 核心：计算预瞄点位置 ==========
+    // 顺时针：CV_PI - track_face_angle
+    // 逆时针：CV_PI + track_face_angle
+    double rotate_angle = ekf_x[7] > 0 ?
+      (CV_PI - track_face_angle) : (CV_PI + track_face_angle);
+    Eigen::Vector2d aim_point2d = calculate_rotate_point2d(car_middle, radius, rotate_angle);
+
+    WATCH("aim_preview", 1);
+    WATCH("track_face_angle_deg", track_face_angle * 57.3);
+
+    return {true, Eigen::Vector4d(aim_point2d.x(), aim_point2d.y(), height, 0)};
+  }
+  // ========== 不需要预瞄：直接瞄准最近装甲板 ==========
+  else {
+    aim_preview_ = false;
+    // 使用现有的coming/leaving角度策略
+    double coming_angle = comming_angle_;
+    double leaving_angle = leaving_angle_;
+    if (target.name == ArmorName::outpost) {
+      coming_angle = 70 / 57.3;
+      leaving_angle = 30 / 57.3;
+    }
+
+    for (int i = 0; i < armor_num; i++) {
+      if (std::abs(delta_angle_list[i]) > coming_angle) continue;
+      if (ekf_x[7] > 0 && delta_angle_list[i] < leaving_angle)
+        return {true, armor_xyza_list[i]};
+      if (ekf_x[7] < 0 && delta_angle_list[i] > -leaving_angle)
+        return {true, armor_xyza_list[i]};
+    }
+    return {false, armor_xyza_list[0]};
+  }
+}
+
+// ========== 计算旋转后的预瞄点位置 ==========
+Eigen::Vector2d Aimer::calculate_rotate_point2d(
+    const Eigen::Vector2d& car_middle, double radius, double rotate_angle) const
+{
+  // 归一化方向向量
+  double magnitude = car_middle.norm();
+  if (magnitude < 1e-6) return car_middle;
+
+  Eigen::Vector2d normalized = car_middle / magnitude;
+  // 延伸到装甲板位置
+  Eigen::Vector2d extended = car_middle + normalized * radius;
+
+  // 旋转变换
+  Eigen::Vector2d translate = extended - car_middle;
+  double cos_theta = std::cos(rotate_angle);
+  double sin_theta = std::sin(rotate_angle);
+
+  Eigen::Vector2d rotated;
+  rotated.x() = translate.x() * cos_theta - translate.y() * sin_theta;
+  rotated.y() = translate.x() * sin_theta + translate.y() * cos_theta;
+  rotated += car_middle;
+
+  return rotated;
+}
+
+// ========== 计算三点角度（取绝对值）==========
+double Aimer::calculate_angle_abs(
+    const Eigen::Vector2d& A, const Eigen::Vector2d& B, const Eigen::Vector2d& C) const
+{
+  Eigen::Vector2d BA = A - B;
+  Eigen::Vector2d BC = C - B;
+  double dot = BA.dot(BC);
+  double norm_product = BA.norm() * BC.norm();
+  if (norm_product < 1e-6) return 0.0;
+
+  double cos_theta = std::clamp(dot / norm_product, -1.0, 1.0);
+  double angle = std::acos(cos_theta);
+  if (angle > CV_PI / 2) angle = angle - CV_PI;
+  return std::abs(angle);
+}
+
+// ========== 自适应计算追踪角度（三分法）==========
+double Aimer::adaptive_calculate_track_face_angle(double rotate_speed_abs) const
+{
+  int iteration = 15;
+  double left = 0;
+  double right = CV_PI / 4; // 最大45度
+
+  while (iteration--) {
+    double m1 = left + (right - left) / 3;
+    double m2 = right - (right - left) / 3;
+    if (calculate_rotate_cost(m1, rotate_speed_abs) < calculate_rotate_cost(m2, rotate_speed_abs)) {
+      right = m2;
+    } else {
+      left = m1;
+    }
+  }
+  return (right + left) / 2;
+}
+
+// ========== 计算旋转代价函数 ==========
+double Aimer::calculate_rotate_cost(double track_face_angle, double rotate_speed_abs) const
+{
+  // 装甲板切换时，一块装甲板到下一块的时间
+  double switch_angle = CV_PI / 2 - 2 * track_face_angle;
+  double switch_need_time = switch_angle / rotate_speed_abs;
+  // 云台追踪需要的时间
+  double track_need_time = track_face_angle * 2 / max_stability_track_rotate_speed_;
+  return std::abs(switch_need_time - track_need_time);
 }
 
 }  // namespace auto_aim

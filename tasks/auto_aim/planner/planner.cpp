@@ -1,7 +1,8 @@
 #include "planner.hpp"
 
 #include <vector>
-
+#include "tools/debug_monitor.hpp"
+#include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/trajectory.hpp"
 #include "tools/yaml.hpp"
@@ -24,11 +25,13 @@ Planner::Planner(const std::string & config_path)
   setup_pitch_solver(config_path);
 }
 
-Plan Planner::plan(Target target, double bullet_speed)
+Plan Planner::plan(Target target, double bullet_speed,
+                   double gimbal_yaw, double gimbal_yaw_vel,
+                   double gimbal_pitch, double gimbal_pitch_vel)
 {
   // 0. Check bullet speed
   if (bullet_speed < 10 || bullet_speed > 25) {
-    bullet_speed = 22;
+    bullet_speed = 16;
   }
 
   // 1. Predict fly_time
@@ -55,16 +58,16 @@ Plan Planner::plan(Target target, double bullet_speed)
     return {false};
   }
 
-  // 3. Solve yaw
+  // 3. Solve yaw — 用云台实际状态作为 MPC 初始状态
   Eigen::VectorXd x0(2);
-  x0 << traj(0, 0), traj(1, 0);
+  x0 << tools::limit_rad(gimbal_yaw - yaw0), gimbal_yaw_vel;
   tiny_set_x0(yaw_solver_, x0);
 
   yaw_solver_->work->Xref = traj.block(0, 0, 2, HORIZON);
   tiny_solve(yaw_solver_);
 
-  // 4. Solve pitch
-  x0 << traj(2, 0), traj(3, 0);
+  // 4. Solve pitch — 用云台实际状态作为 MPC 初始状态
+  x0 << gimbal_pitch, gimbal_pitch_vel;
   tiny_set_x0(pitch_solver_, x0);
 
   pitch_solver_->work->Xref = traj.block(2, 0, 2, HORIZON);
@@ -84,16 +87,28 @@ Plan Planner::plan(Target target, double bullet_speed)
   plan.pitch_vel = pitch_solver_->work->x(1, HALF_HORIZON);
   plan.pitch_acc = pitch_solver_->work->u(0, HALF_HORIZON);
 
-  auto shoot_offset_ = 2;
-  plan.fire =
-    std::hypot(
-      traj(0, HALF_HORIZON + shoot_offset_) - yaw_solver_->work->x(0, HALF_HORIZON + shoot_offset_),
-      traj(2, HALF_HORIZON + shoot_offset_) -
-        pitch_solver_->work->x(0, HALF_HORIZON + shoot_offset_)) < fire_thresh_;
+  // 开火判据：检查 MPC 起始段（当前时刻附近）的追踪误差
+  // 在第 0~fire_check_steps 步内，MPC 控制轨迹与参考轨迹的最大偏差都小于阈值才允许开火
+  constexpr int fire_check_steps = 5;  // 检查前 50ms
+  double max_error = 0;
+  for (int i = 0; i < fire_check_steps; i++) {
+    double err = std::hypot(
+      traj(0, i) - yaw_solver_->work->x(0, i),
+      traj(2, i) - pitch_solver_->work->x(0, i));
+    max_error = std::max(max_error, err);
+  }
+  plan.fire = max_error < fire_thresh_;
+
+  WATCH("plan_fire", plan.fire);
+  WATCH("plan_max_error_deg", max_error * 57.3);
+  WATCH("plan_yaw_diff_0", 57.3 * (traj(0, 0) - yaw_solver_->work->x(0, 0)));
+  WATCH("plan_pitch_diff_0", 57.3 * (traj(2, 0) - pitch_solver_->work->x(0, 0)));
   return plan;
 }
 
-Plan Planner::plan(std::optional<Target> target, double bullet_speed)
+Plan Planner::plan(std::optional<Target> target, double bullet_speed,
+                   double gimbal_yaw, double gimbal_yaw_vel,
+                   double gimbal_pitch, double gimbal_pitch_vel)
 {
   if (!target.has_value()) return {false};
 
@@ -104,7 +119,7 @@ Plan Planner::plan(std::optional<Target> target, double bullet_speed)
 
   target->predict(future);
 
-  return plan(*target, bullet_speed);
+  return plan(*target, bullet_speed, gimbal_yaw, gimbal_yaw_vel, gimbal_pitch, gimbal_pitch_vel);
 }
 
 void Planner::setup_yaw_solver(const std::string & config_path)

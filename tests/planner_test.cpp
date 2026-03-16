@@ -43,7 +43,11 @@ int main(int argc, char * argv[])
     target.predict(0.01);
 
     auto gs = gimbal.state();
-    auto plan = planner.plan(target, gs.bullet_speed);
+    // 下位机发来的 yaw/pitch 是角度制，转为弧度传入 MPC
+    auto plan = planner.plan(
+      target, gs.bullet_speed,
+      gs.yaw / 57.29578, gs.yaw_vel / 57.29578,
+      gs.pitch / 57.29578, gs.pitch_vel);
 
     gimbal.send(
       plan.control, plan.fire, plan.yaw, plan.yaw_vel, plan.yaw_acc, plan.pitch, plan.pitch_vel,

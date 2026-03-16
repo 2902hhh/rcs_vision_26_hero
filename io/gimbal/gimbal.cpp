@@ -2,6 +2,7 @@
 
 #include "tools/crc.hpp"
 #include "tools/logger.hpp"
+#include "tools/debug_monitor.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/yaml.hpp"
 #include <cstring>  // for std::memcpy
