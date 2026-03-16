@@ -2,6 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <limits>
 #include <tuple>
 
 #include "tools/logger.hpp"
@@ -268,26 +269,43 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
   target_.predict(t);
 
   int found_count = 0;
-  double min_x = 1e10;  // 画面最左侧
   for (const auto & armor : armors) {
     if (armor.name != target_.name || armor.type != target_.armor_type) continue;
     found_count++;
-    min_x = armor.center.x < min_x ? armor.center.x : min_x;
   }
 
   if (found_count == 0) return false;
 
-  for (auto & armor : armors) {
+  double min_angle_error = std::numeric_limits<double>::max();
+  std::list<Armor>::iterator best_iter = armors.end();
+  const std::vector<Eigen::Vector4d> & xyza_list = target_.armor_xyza_list();
+
+  for (auto it = armors.begin(); it != armors.end(); ++it) {
+    auto & armor = *it;
     if (
       armor.name != target_.name || armor.type != target_.armor_type
-      //  || armor.center.x != min_x
     )
       continue;
 
     solver_.solve(armor);
 
-    target_.update(armor);
+    double armor_min_angle_error = std::numeric_limits<double>::max();
+    for (const auto & xyza : xyza_list) {
+      Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
+      double angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
+                           std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
+      if (angle_error < armor_min_angle_error) armor_min_angle_error = angle_error;
+    }
+
+    if (armor_min_angle_error < min_angle_error) {
+      min_angle_error = armor_min_angle_error;
+      best_iter = it;
+    }
   }
+
+  if (best_iter == armors.end()) return false;
+
+  target_.update(*best_iter);
 
   return true;
 }

@@ -148,8 +148,8 @@ bool Shooter::shoot(
   static int debug_cnt = 0;
   if (debug_cnt++ % 100 == 0) { // 每100次调用打印一次
       tools::logger()->info(
-          "[Shooter] Dist:{:.2f}m Tol:{:.3f} | YawErr:{:.3f} OK:{} | PitchErr:{:.3f} OK:{} | Fire:RPM={:.1f}",
-          distance, tolerance,
+          "[Shooter] Dist:{:.2f}m Tol:{:.3f} | YawErr:{:.3f} OK:{} | PitchErr:{:.3f} OK:{} | RPM={:.1f}",
+          distance, tolerance*57.3,
           yaw_aim_error, is_yaw_aimed,
           pitch_aim_error, is_pitch_aimed,
           rotate_speed_rpm
