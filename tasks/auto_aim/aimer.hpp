@@ -59,6 +59,14 @@ private:
   };
   SpinStrategy spin_strategy_;                // 策略类型
 
+  // ========== 小陀螺状态判断 (带平滑和滞回) ==========
+  bool is_spinning_ = false;       // 当前是否处于小陀螺模式
+  double smoothed_omega_ = 0.0;    // 平滑后的角速度绝对值
+  double spin_enter_speed_;        // 进入小陀螺模式的平滑角速度阈值 (rad/s)
+  double spin_exit_speed_;         // 退出小陀螺模式的平滑角速度阈值 (rad/s)
+  double omega_smooth_alpha_;      // 角速度EMA平滑系数 (0~1, 越大越跟随原始值)
+  void update_spin_state(double raw_omega);
+
   AimPoint choose_aim_point(const Target & target);
 
   // ========== 新增：预瞄相关方法 ==========

@@ -88,6 +88,12 @@ spin_strategy: "adaptive"
 static_track_face_angle: 15  # 预瞄追踪角度，degree
 max_stability_track_rotate_speed: 3.0  # 云台最大稳定追踪角速度，rad/s
 
+#####-----小陀螺判定参数-----#####
+# 使用EMA平滑 + 滞回阈值，防止观测角速度振荡导致策略频繁切换
+spin_enter_speed: 2.5   # 进入小陀螺模式的平滑角速度阈值，rad/s
+spin_exit_speed: 1.5    # 退出小陀螺模式的平滑角速度阈值，rad/s
+omega_smooth_alpha: 0.2 # 角速度EMA平滑系数 (0~1，越小越平滑)
+
 #####-----shooter参数-----#####
 first_tolerance: 2 # 近距离射击容差，degree
 second_tolerance: 0.5 # 远距离射击容差，degree

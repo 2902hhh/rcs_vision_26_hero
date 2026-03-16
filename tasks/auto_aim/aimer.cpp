@@ -22,6 +22,13 @@ Aimer::Aimer(const std::string & config_path)
   high_speed_delay_time_ = yaml["high_speed_delay_time"].as<double>();
   low_speed_delay_time_ = yaml["low_speed_delay_time"].as<double>();
   decision_speed_ = yaml["decision_speed"].as<double>();
+  // 小陀螺状态判断参数 (带平滑和滞回)
+  spin_enter_speed_ =
+    yaml["spin_enter_speed"].IsDefined() ? yaml["spin_enter_speed"].as<double>() : 2.5;
+  spin_exit_speed_ =
+    yaml["spin_exit_speed"].IsDefined() ? yaml["spin_exit_speed"].as<double>() : 1.5;
+  omega_smooth_alpha_ =
+    yaml["omega_smooth_alpha"].IsDefined() ? yaml["omega_smooth_alpha"].as<double>() : 0.2;
   if (yaml["left_yaw_offset"].IsDefined() && yaml["right_yaw_offset"].IsDefined()) {
     left_yaw_offset_ = yaml["left_yaw_offset"].as<double>() / 57.3;    // degree to rad
     right_yaw_offset_ = yaml["right_yaw_offset"].as<double>() / 57.3;  // degree to rad
@@ -46,6 +53,16 @@ Aimer::Aimer(const std::string & config_path)
   }
 }
 
+void Aimer::update_spin_state(double raw_omega)
+{
+  smoothed_omega_ = omega_smooth_alpha_ * raw_omega + (1.0 - omega_smooth_alpha_) * smoothed_omega_;
+  if (!is_spinning_ && smoothed_omega_ > spin_enter_speed_) {
+    is_spinning_ = true;
+  } else if (is_spinning_ && smoothed_omega_ < spin_exit_speed_) {
+    is_spinning_ = false;
+  }
+}
+
 io::Command Aimer::aim(
   std::list<Target> targets, std::chrono::steady_clock::time_point timestamp, double bullet_speed,
   bool to_now)
@@ -53,9 +70,12 @@ io::Command Aimer::aim(
   if (targets.empty()) return {false, false, 0, 0};
   auto target = targets.front();
 
+  // 更新平滑角速度和小陀螺状态 (每帧仅更新一次，在迭代之前)
+  update_spin_state(std::abs(target.ekf_x()[7]));
+
   auto ekf = target.ekf();
   double delay_time =
-    target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
+    smoothed_omega_ > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
 
   // 针对英雄机器人大弹丸射速较低的情况进行保护，避免除以0或弹道无解
   if (bullet_speed < 12) bullet_speed = 16;
@@ -322,9 +342,11 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   WATCH("rad", target.ekf_x()[7]);
+  WATCH("smoothed_omega", smoothed_omega_);
+  WATCH("is_spinning", is_spinning_ ? 1 : 0);
 
-  // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
-  if (std::abs(target.ekf_x()[7]) <= 2 && target.name != ArmorName::outpost) {
+  // ========== 策略1：非小陀螺 (基于平滑角速度和滞回判定) ==========
+  if (!is_spinning_ && target.name != ArmorName::outpost) {
     aim_preview_ = false;
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
