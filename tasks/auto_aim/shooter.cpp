@@ -136,11 +136,11 @@ bool Shooter::shoot(
   double yaw_cmd_diff = std::abs(last_command_.yaw - command.yaw);
 
   // [Yaw跟随误差] 当前云台实际Yaw (gimbal_pos[0]) vs 上次指令Yaw
-  double yaw_aim_error = std::abs(gimbal_pos[0] - last_command_.yaw);
+  double yaw_aim_error = std::abs(gimbal_pos[0] - command.yaw);
   WATCH("gimbal_yaw_deg", gimbal_pos[0] * 57.3);
   // === 新增: [Pitch跟随误差] 当前云台实际Pitch (gimbal_pos[1]) vs 上次指令Pitch ===
   // 注意：gimbal_pos[1] 对应 Pitch 轴，last_command_.pitch 是 aim 算出的目标 Pitch
-  double pitch_aim_error = std::abs(gimbal_pos[1] - last_command_.pitch);
+  double pitch_aim_error = std::abs(gimbal_pos[1] - command.pitch);
 
   // 5. 状态判定
   // 命令稳定: Yaw 指令突变小于 2倍容忍度

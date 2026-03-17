@@ -84,7 +84,7 @@ low_speed_delay_time: 0.014 # s
 # preview: 预瞄模式，云台提前指向装甲板即将出现的位置（守株待兔）
 # coming_leaving: 根据旋转方向选择coming/leaving的装甲板
 # adaptive: 根据转速和角度自动选择最优策略
-spin_strategy: "preview"
+spin_strategy: "coming_leaving"
 static_track_face_angle: 15  # 预瞄追踪角度，degree
 max_stability_track_rotate_speed: 2.0  # 云台最大稳定追踪角速度，rad/s
 use_manual_rotate_speed: true  # 是否绕过观测角速度 true false
