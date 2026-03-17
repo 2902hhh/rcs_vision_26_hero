@@ -50,10 +50,19 @@ Aimer::Aimer(const std::string & config_path)
   } else if (strategy_str == "coming_leaving") {
     spin_strategy_ = SpinStrategy::coming_leaving;
     tools::logger()->info("[Aimer] Spin strategy: coming_leaving (强制Coming/Leaving)");
+  } else if (strategy_str == "shoot_middle") {
+    spin_strategy_ = SpinStrategy::shoot_middle;
+    tools::logger()->info("[Aimer] Spin strategy: shoot_middle (瞄准车辆中心)");
   } else {
     spin_strategy_ = SpinStrategy::adaptive;
     tools::logger()->info("[Aimer] Spin strategy: adaptive (自适应)");
   }
+
+  // ========== 新增：shoot_middle 模式配置参数 ==========
+  min_shoot_middle_rpm_ = yaml["min_shoot_middle_rpm"].as<double>(60.0);
+  max_shoot_middle_rpm_ = yaml["max_shoot_middle_rpm"].as<double>(90.0);
+  min_shoot_middle_distance_ = yaml["min_shoot_middle_distance"].as<double>(1.0);
+  max_shoot_middle_distance_ = yaml["max_shoot_middle_distance"].as<double>(3.2);
 }
 
 io::Command Aimer::aim(
@@ -423,18 +432,41 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     Eigen::Vector2d::Zero(), car_middle,
     Eigen::Vector2d(sorted_armors[1].first[0], sorted_armors[1].first[1]));
 
-  // ========== 策略选择：根据配置决定使用预瞄还是Coming/Leaving ==========
+  // ========== 策略选择：根据配置决定使用哪种策略 ==========
   bool use_preview = false;
+  bool use_shoot_middle = false;
 
   if (spin_strategy_ == SpinStrategy::preview) {
-    // 强制使用预瞄模式
     use_preview = true;
   } else if (spin_strategy_ == SpinStrategy::coming_leaving) {
-    // 强制使用 Coming/Leaving 模式
     use_preview = false;
+  } else if (spin_strategy_ == SpinStrategy::shoot_middle) {
+    // 强制使用 shoot_middle 模式
+    use_shoot_middle = true;
   } else {
-    // 自适应模式：根据角度判断
-    use_preview = (track_face_angle < shortest_face_angle && track_face_angle < next_face_angle);
+    // 自适应模式：根据条件自动选择
+    double distance_m = car_middle.norm();  // 单位：米
+
+    // 优先判断是否应该使用 shoot_middle
+    if (should_use_shoot_middle(rotate_speed_rpm, distance_m)) {
+      use_shoot_middle = true;
+    } else {
+      // 原有逻辑：根据角度判断
+      use_preview = (track_face_angle < shortest_face_angle && track_face_angle < next_face_angle);
+    }
+  }
+
+  // ========== shoot_middle 模式处理 ==========
+  if (use_shoot_middle) {
+    aim_preview_ = false;
+
+    Eigen::Vector4d middle_aim = calculate_middle_aim_point(target, armor_xyza_list);
+
+    WATCH("shoot_middle_mode", 1);
+    WATCH("middle_aim_x", middle_aim[0]);
+    WATCH("middle_aim_y", middle_aim[1]);
+
+    return {true, middle_aim};
   }
 
   if (use_preview) {
@@ -557,6 +589,52 @@ double Aimer::calculate_rotate_cost(double track_face_angle, double rotate_speed
   // 云台追踪需要的时间
   double track_need_time = track_face_angle * 2 / max_stability_track_rotate_speed_;
   return std::abs(switch_need_time - track_need_time);
+}
+
+// ========== 计算车辆几何中心瞄准点 ==========
+Eigen::Vector4d Aimer::calculate_middle_aim_point(
+    const Target& target,
+    const std::vector<Eigen::Vector4d>& armor_xyza_list) const
+{
+  Eigen::VectorXd ekf_x = target.ekf_x();
+
+  // 1. 获取车辆中心位置
+  double car_center_x = ekf_x[0];  // 车辆中心 x
+  double car_center_y = ekf_x[2];  // 车辆中心 y (世界坐标系)
+
+  // 2. 找到最近的装甲板（用于获取高度）
+  auto armor_num = armor_xyza_list.size();
+  size_t nearest_idx = 0;
+  double min_dist = 1e10;
+  for (size_t i = 0; i < armor_num; i++) {
+    double dist = Eigen::Vector2d(armor_xyza_list[i][0], armor_xyza_list[i][1]).norm();
+    if (dist < min_dist) {
+      min_dist = dist;
+      nearest_idx = i;
+    }
+  }
+
+  // 3. 瞄准点: x/y 取车辆中心，z(高度)取最近装甲板高度
+  double aim_x = car_center_x;
+  double aim_y = car_center_y;
+  double aim_z = armor_xyza_list[nearest_idx][2];  // 使用最近装甲板的高度
+
+  return Eigen::Vector4d(aim_x, aim_y, aim_z, 0);
+}
+
+// ========== 判断是否应该使用 shoot_middle 模式 ==========
+bool Aimer::should_use_shoot_middle(double rotate_speed_rpm, double distance_m) const
+{
+  // 条件1: 转速在中间范围
+  bool rpm_in_range = (rotate_speed_rpm >= min_shoot_middle_rpm_ &&
+                       rotate_speed_rpm <= max_shoot_middle_rpm_);
+
+  // 条件2: 距离超出最佳跟踪范围
+  bool distance_out_of_range = (distance_m < min_shoot_middle_distance_ ||
+                                 distance_m > max_shoot_middle_distance_);
+
+  // 满足任一条件即启用 shoot_middle
+  return rpm_in_range || distance_out_of_range;
 }
 
 }  // namespace auto_aim
