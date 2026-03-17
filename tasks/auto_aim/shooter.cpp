@@ -21,6 +21,7 @@ Shooter::Shooter(const std::string & config_path)
   fire_cooldown_ = yaml["fire_cooldown"].as<double>();
   fire_cooldown_arm_delay_ =
     yaml["fire_cooldown_arm_delay"] ? yaml["fire_cooldown_arm_delay"].as<double>() : 0.01;
+  max_shoot_middle_yaw_ = yaml["max_shoot_middle_yaw"].as<double>(15.0) / 57.3;  // 默认 15 度
 }
 
 bool Shooter::shoot(
@@ -59,8 +60,55 @@ bool Shooter::shoot(
   auto ekf_x = target.ekf_x();
   double rotate_speed_rpm = std::abs(ekf_x[7]) * 30 / CV_PI;
 
+  // ========== 新增：shoot_middle 模式开火判断 ==========
+  // 条件：转速在 60-90 RPM 且不在预瞄模式
+  if (rotate_speed_rpm >= 60 && rotate_speed_rpm <= 90 && !aimer.get_aim_preview()) {
+    auto armor_list = target.armor_xyza_list();
+    if (armor_list.size() >= 2) {
+      // 找到最近的装甲板
+      int nearest_idx = 0;
+      double min_dist = 1e10;
+      for (size_t i = 0; i < armor_list.size(); i++) {
+        double dist = Eigen::Vector2d(armor_list[i][0], armor_list[i][1]).norm();
+        if (dist < min_dist) {
+          min_dist = dist;
+          nearest_idx = i;
+        }
+      }
+
+      // 计算装甲板的 yaw 角度
+      // armor_list[i][3] 是装甲板的 yaw 值（世界坐标系）
+      double armor_yaw = armor_list[nearest_idx][3];
+
+      // 计算装甲板相对于枪口线的 yaw 差值
+      // 枪口线指向正前方 (yaw = 0)
+      double armor_yaw_diff = std::abs(armor_yaw);
+
+      // 判断装甲板是否在可射击范围内
+      if (armor_yaw_diff < max_shoot_middle_yaw_) {
+        // 在射击范围内，允许开火
+        if (!cooldown_cycle_active_) {
+          last_fire_time_ = now;
+          cooldown_cycle_active_ = true;
+        }
+        last_command_ = command;
+        WATCH("shoot_middle_fire", 1);
+        WATCH("armor_yaw_diff_deg", armor_yaw_diff * 57.3);
+        return true;
+      }
+
+      WATCH("shoot_middle_mode", 1);
+      WATCH("shoot_middle_fire", 0);
+      WATCH("armor_yaw_diff_deg", armor_yaw_diff * 57.3);
+      last_command_ = command;
+      return false;
+    }
+  }
+  WATCH("shoot_middle_mode", 0);
+
   // ========== 新增：高速小陀螺精确发射模式 ==========
-  if (rotate_speed_rpm > 60 && !aimer.get_aim_preview()) {
+  // 条件：转速 > 90 RPM 且不在预瞄模式
+  if (rotate_speed_rpm > 90 && !aimer.get_aim_preview()) {
     precision_mode_ = true;
 
     auto armor_list = target.armor_xyza_list();

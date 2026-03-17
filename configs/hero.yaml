@@ -107,6 +107,7 @@ judge_distance: 3 #距离判断阈值
 auto_fire: true # 是否由自瞄控制射击
 fire_cooldown: 1.9 # 开火静默时间，s
 fire_cooldown_arm_delay: 0.1 # 开火后延迟触发静默，s
+max_shoot_middle_yaw: 15.0  # shoot_middle 模式 yaw 角度阈值，degree
 
 #####-----decider参数-----#####
 mode: 1

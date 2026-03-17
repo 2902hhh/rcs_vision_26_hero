@@ -35,6 +35,7 @@ private:
 
   // ========== 新增：精确发射时机相关 ==========
   bool precision_mode_ = false;           // 是否启用精确发射模式
+  double max_shoot_middle_yaw_;           // shoot_middle 模式 yaw 角度阈值 (rad)
   double last_face_angle_ = 0.0;          // 上一帧装甲板角度
   bool first_precision_ = true;           // 是否首次进入精确模式
   bool be_shooted_ = false;               // 当前装甲板是否已发射
