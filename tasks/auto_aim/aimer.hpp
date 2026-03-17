@@ -4,6 +4,7 @@
 #include <Eigen/Dense>
 #include <chrono>
 #include <list>
+#include <optional>
 
 #include "io/cboard.hpp"
 #include "io/gimbal/gimbal.hpp"
@@ -45,6 +46,13 @@ private:
   double high_speed_delay_time_;
   double low_speed_delay_time_;
   double decision_speed_;
+  bool use_manual_rotate_speed_ = false;
+  double manual_rotate_speed_ = 2.5;
+  double spin_enter_speed_;
+  double spin_exit_speed_;
+  double spin_speed_lpf_alpha_;
+  bool spin_mode_ = false;
+  std::optional<double> filtered_rotate_speed_abs_;
 
   // ========== 新增：预瞄相关成员 ==========
   bool aim_preview_ = false;              // 是否处于预瞄模式

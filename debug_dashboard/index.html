@@ -398,7 +398,7 @@
           colorIndex++;
           variables[key] = {
             color: color,
-            active: true,
+            active: false,
             data: [],
             lastValue: numValue,
           };
@@ -427,7 +427,7 @@
         borderColor: color,
         backgroundColor: color + '20',
         data: [],
-        hidden: false,
+        hidden: true,
       });
     }
 
@@ -460,7 +460,7 @@
       const varList = document.getElementById('varList');
 
       const item = document.createElement('div');
-      item.className = 'var-item active';
+      item.className = 'var-item';
       item.dataset.name = name;
       item.innerHTML = `
         <div class="var-color" style="background:${v.color}"></div>

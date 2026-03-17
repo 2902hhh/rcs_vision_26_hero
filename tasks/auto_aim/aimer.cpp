@@ -2,6 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include "tools/debug_monitor.hpp"
@@ -22,6 +23,15 @@ Aimer::Aimer(const std::string & config_path)
   high_speed_delay_time_ = yaml["high_speed_delay_time"].as<double>();
   low_speed_delay_time_ = yaml["low_speed_delay_time"].as<double>();
   decision_speed_ = yaml["decision_speed"].as<double>();
+  use_manual_rotate_speed_ = yaml["use_manual_rotate_speed"].as<bool>(false);
+  manual_rotate_speed_ = yaml["manual_rotate_speed"].as<double>(2.5);
+  spin_enter_speed_ = yaml["spin_enter_speed"].as<double>(2.4);
+  spin_exit_speed_ = yaml["spin_exit_speed"].as<double>(1.8);
+  spin_speed_lpf_alpha_ = yaml["spin_speed_lpf_alpha"].as<double>(0.25);
+  spin_speed_lpf_alpha_ = std::clamp(spin_speed_lpf_alpha_, 0.01, 1.0);
+  if (spin_exit_speed_ > spin_enter_speed_) {
+    spin_exit_speed_ = spin_enter_speed_;
+  }
   if (yaml["left_yaw_offset"].IsDefined() && yaml["right_yaw_offset"].IsDefined()) {
     left_yaw_offset_ = yaml["left_yaw_offset"].as<double>() / 57.3;    // degree to rad
     right_yaw_offset_ = yaml["right_yaw_offset"].as<double>() / 57.3;  // degree to rad
@@ -54,8 +64,11 @@ io::Command Aimer::aim(
   auto target = targets.front();
 
   auto ekf = target.ekf();
-  double delay_time =
-    target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
+  double observed_rotate_speed = target.ekf_x()[7];
+  double effective_rotate_speed =
+    use_manual_rotate_speed_ ? manual_rotate_speed_ : observed_rotate_speed;
+  double delay_time = std::abs(effective_rotate_speed) > decision_speed_ ? high_speed_delay_time_
+                                                                         : low_speed_delay_time_;
 
   // 针对英雄机器人大弹丸射速较低的情况进行保护，避免除以0或弹道无解
   if (bullet_speed < 12) bullet_speed = 16;
@@ -322,9 +335,33 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   WATCH("rad", target.ekf_x()[7]);
+  double effective_rotate_speed =
+    use_manual_rotate_speed_ ? manual_rotate_speed_ : ekf_x[7];
+  WATCH("rad_effective", effective_rotate_speed);
+
+  double raw_rotate_speed_abs = std::abs(effective_rotate_speed);
+  if (!filtered_rotate_speed_abs_.has_value()) {
+    filtered_rotate_speed_abs_ = raw_rotate_speed_abs;
+  } else {
+    filtered_rotate_speed_abs_ = spin_speed_lpf_alpha_ * raw_rotate_speed_abs +
+                                 (1.0 - spin_speed_lpf_alpha_) * filtered_rotate_speed_abs_.value();
+  }
+  double rotate_speed_abs = filtered_rotate_speed_abs_.value();
+
+  if (target.name == ArmorName::outpost) {
+    spin_mode_ = true;
+  } else if (spin_mode_) {
+    if (rotate_speed_abs < spin_exit_speed_) spin_mode_ = false;
+  } else {
+    if (rotate_speed_abs > spin_enter_speed_) spin_mode_ = true;
+  }
+
+  WATCH("rotate_speed_raw", raw_rotate_speed_abs);
+  WATCH("rotate_speed_filtered", rotate_speed_abs);
+  WATCH("spin_mode", spin_mode_ ? 1 : 0);
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
-  if (std::abs(target.ekf_x()[7]) <= 2 && target.name != ArmorName::outpost) {
+  if (!spin_mode_) {
     aim_preview_ = false;
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
@@ -355,7 +392,6 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   // ========== 策略2：小陀螺 - 启用预瞄机制 ==========
-  double rotate_speed_abs = std::abs(ekf_x[7]);
   double rotate_speed_rpm = rotate_speed_abs * 30 / CV_PI;
 
   // ========== 预瞄角度计算 ==========
@@ -415,13 +451,13 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     }
 
     // 确定高度（根据旋转方向）
-    double height = ekf_x[7] > 0 ? left_point[2] : right_point[2];
+    double height = effective_rotate_speed > 0 ? left_point[2] : right_point[2];
     double radius = (ekf_x[8] + ekf_x[9]) / 2; // 半径取均值
 
     // ========== 核心：计算预瞄点位置 ==========
     // 顺时针：CV_PI - track_face_angle
     // 逆时针：CV_PI + track_face_angle
-    double rotate_angle = ekf_x[7] > 0 ?
+    double rotate_angle = effective_rotate_speed > 0 ?
       (CV_PI - track_face_angle) : (CV_PI + track_face_angle);
     Eigen::Vector2d aim_point2d = calculate_rotate_point2d(car_middle, radius, rotate_angle);
 
@@ -443,9 +479,9 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
     for (int i = 0; i < armor_num; i++) {
       if (std::abs(delta_angle_list[i]) > coming_angle) continue;
-      if (ekf_x[7] > 0 && delta_angle_list[i] < leaving_angle)
+      if (effective_rotate_speed > 0 && delta_angle_list[i] < leaving_angle)
         return {true, armor_xyza_list[i]};
-      if (ekf_x[7] < 0 && delta_angle_list[i] > -leaving_angle)
+      if (effective_rotate_speed < 0 && delta_angle_list[i] > -leaving_angle)
         return {true, armor_xyza_list[i]};
     }
     return {false, armor_xyza_list[0]};

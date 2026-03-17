@@ -29,7 +29,9 @@ private:
   double second_tolerance_;
   bool auto_fire_;
   double fire_cooldown_;
+  double fire_cooldown_arm_delay_;
   std::chrono::steady_clock::time_point last_fire_time_;
+  bool cooldown_cycle_active_ = false;
 
   // ========== 新增：精确发射时机相关 ==========
   bool precision_mode_ = false;           // 是否启用精确发射模式

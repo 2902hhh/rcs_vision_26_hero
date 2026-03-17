@@ -65,6 +65,8 @@ int main(int argc, char * argv[])
   int frame_count = 0;
   auto last_fps_time = std::chrono::steady_clock::now();
   double fps = 0.0;
+  std::chrono::steady_clock::time_point last_frame_timestamp;
+  bool has_last_frame_timestamp = false;
 
   while (!exiter.exit()) {
     // 简单计算FPS
@@ -79,6 +81,15 @@ int main(int argc, char * argv[])
     camera.read(img, t);
     // 增加空图检查，防止程序崩溃
     if (img.empty()) continue;
+
+    if (has_last_frame_timestamp) {
+      double frame_dt = tools::delta_time(t, last_frame_timestamp);
+      if (frame_dt > 0.0 && frame_dt < 0.2) {
+        shooter.update_frame_time(frame_dt);
+      }
+    }
+    last_frame_timestamp = t;
+    has_last_frame_timestamp = true;
 
     auto gs = gimbal.state(); 
     q = gimbal.q(t - 1ms);
@@ -110,7 +121,6 @@ int main(int argc, char * argv[])
 
     gimbal.send(command);
 
-    WATCH("fire",command.shoot);
     // ==================== 可视化代码开始 ====================
     if (enable_display) {
         // 克隆一份图像用于绘制，避免影响原图处理

@@ -19,6 +19,8 @@ Shooter::Shooter(const std::string & config_path)
   judge_distance_ = yaml["judge_distance"].as<double>();
   auto_fire_ = yaml["auto_fire"].as<bool>();
   fire_cooldown_ = yaml["fire_cooldown"].as<double>();
+  fire_cooldown_arm_delay_ =
+    yaml["fire_cooldown_arm_delay"] ? yaml["fire_cooldown_arm_delay"].as<double>() : 0.01;
 }
 
 bool Shooter::shoot(
@@ -38,13 +40,19 @@ bool Shooter::shoot(
          return false;
   }
 
-  // 1.5 开火静默：上次开火后 fire_cooldown_ 秒内不允许再次开火
+  // 1.5 开火静默：开火后先等待 fire_cooldown_arm_delay_ 秒，再进入 fire_cooldown_ 秒静默
   auto now = std::chrono::steady_clock::now();
-  double since_last_fire =
-    std::chrono::duration<double>(now - last_fire_time_).count();
-  if (since_last_fire < fire_cooldown_) {
-    last_command_ = command;
-    return false;
+  if (cooldown_cycle_active_) {
+    double since_last_fire = std::chrono::duration<double>(now - last_fire_time_).count();
+    double cooldown_start = fire_cooldown_arm_delay_;
+    double cooldown_end = fire_cooldown_arm_delay_ + fire_cooldown_;
+    if (since_last_fire >= cooldown_start && since_last_fire < cooldown_end) {
+      last_command_ = command;
+      return false;
+    }
+    if (since_last_fire >= cooldown_end) {
+      cooldown_cycle_active_ = false;
+    }
   }
 
   auto target = targets.front();
@@ -93,7 +101,10 @@ bool Shooter::shoot(
         bool can_shoot = judging_precision_shoot(shoot_target, car_middle, ekf_x[7]);
         if (can_shoot) {
           be_shooted_ = true;
-          last_fire_time_ = std::chrono::steady_clock::now();
+          if (!cooldown_cycle_active_) {
+            last_fire_time_ = now;
+            cooldown_cycle_active_ = true;
+          }
           last_command_ = command;
           WATCH("precision_shoot", 1);
           return true;
@@ -126,7 +137,7 @@ bool Shooter::shoot(
 
   // [Yaw跟随误差] 当前云台实际Yaw (gimbal_pos[0]) vs 上次指令Yaw
   double yaw_aim_error = std::abs(gimbal_pos[0] - last_command_.yaw);
-
+  WATCH("gimbal_yaw_deg", gimbal_pos[0] * 57.3);
   // === 新增: [Pitch跟随误差] 当前云台实际Pitch (gimbal_pos[1]) vs 上次指令Pitch ===
   // 注意：gimbal_pos[1] 对应 Pitch 轴，last_command_.pitch 是 aim 算出的目标 Pitch
   double pitch_aim_error = std::abs(gimbal_pos[1] - last_command_.pitch);
@@ -163,7 +174,10 @@ bool Shooter::shoot(
   // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
   // 修改后: 加入 is_pitch_aimed
   if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid) {
-    last_fire_time_ = now;
+    if (!cooldown_cycle_active_) {
+      last_fire_time_ = now;
+      cooldown_cycle_active_ = true;
+    }
     last_command_ = command;
     return true; // 允许开火
   }

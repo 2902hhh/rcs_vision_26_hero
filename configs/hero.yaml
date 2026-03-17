@@ -76,8 +76,8 @@ leaving_angle: 5 # degree
 left_yaw_offset: -1
 right_yaw_offset: -0.6
 decision_speed: 2  # rad/s
-high_speed_delay_time: 0.15 # s
-low_speed_delay_time: 0.15 # s
+high_speed_delay_time: 0.014 # s
+low_speed_delay_time: 0.014 # s
 
 #####-----小陀螺策略参数-----#####
 # 可选策略: "preview" / "coming_leaving" / "adaptive"
@@ -87,13 +87,19 @@ low_speed_delay_time: 0.15 # s
 spin_strategy: "preview"
 static_track_face_angle: 15  # 预瞄追踪角度，degree
 max_stability_track_rotate_speed: 2.0  # 云台最大稳定追踪角速度，rad/s
+use_manual_rotate_speed: true  # 是否绕过观测角速度 true false
+manual_rotate_speed: 2.513        # 手动角速度(rad/s)，正负表示旋转方向
+spin_enter_speed: 2.4           # 进入小陀螺策略阈值(rad/s)
+spin_exit_speed: 1.8            # 退出小陀螺策略阈值(rad/s)
+spin_speed_lpf_alpha: 0.25      # 转速低通滤波系数(0~1)
 
 #####-----shooter参数-----#####
-first_tolerance: 2 # 近距离射击容差，degree
-second_tolerance: 0.5 # 远距离射击容差，degree
+first_tolerance: 1 # 近距离射击容差，degree
+second_tolerance: 0.2 # 远距离射击容差，degree
 judge_distance: 3 #距离判断阈值
 auto_fire: true # 是否由自瞄控制射击
-fire_cooldown: 1.5 # 开火静默时间，s
+fire_cooldown: 1.9 # 开火静默时间，s
+fire_cooldown_arm_delay: 0.1 # 开火后延迟触发静默，s
 
 #####-----decider参数-----#####
 mode: 1
