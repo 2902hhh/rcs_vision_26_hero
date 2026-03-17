@@ -77,8 +77,13 @@ bool Shooter::shoot(
         });
 
       // 检查最近两个装甲板的 x 坐标（与 Z_LION 一致）
-      double armor_x_0 = std::abs(sorted[0].first[0]);  // 最近装甲板的 x 坐标
-      double armor_x_1 = std::abs(sorted[1].first[0]);  // 第二近装甲板的 x 坐标
+      double armor_x_0 = std::abs(sorted[0].first[0]);  // 最近装甲板的 x 坐标绝对值
+      double armor_x_1 = std::abs(sorted[1].first[0]);  // 第二近装甲板的 x 坐标绝对值
+      double raw_x_0 = sorted[0].first[0];  // 最近装甲板的原始 x 坐标（带符号）
+
+      // 计算需要调整的量：正值=需要向右调，负值=需要向左调
+      // 如果 x > 0 (装甲板在右边)，需要向右调；x < 0 (装甲板在左边)，需要向左调
+      double adjust_hint = raw_x_0;  // 直接用原始 x 值作为调整提示
 
       // 只要有一个装甲板的 x 坐标小于阈值，就允许开火
       if (armor_x_0 < max_shoot_middle_x_ || armor_x_1 < max_shoot_middle_x_) {
@@ -90,6 +95,7 @@ bool Shooter::shoot(
         WATCH("shoot_middle_fire", 1);
         WATCH("armor_x_0", armor_x_0);
         WATCH("armor_x_1", armor_x_1);
+        WATCH("shoot_middle_adjust", adjust_hint);
         return true;
       }
 
@@ -97,6 +103,7 @@ bool Shooter::shoot(
       WATCH("shoot_middle_fire", 0);
       WATCH("armor_x_0", armor_x_0);
       WATCH("armor_x_1", armor_x_1);
+      WATCH("shoot_middle_adjust", adjust_hint);
       last_command_ = command;
       return false;
     }
