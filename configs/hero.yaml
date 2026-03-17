@@ -108,6 +108,7 @@ auto_fire: true # 是否由自瞄控制射击
 fire_cooldown: 1.9 # 开火静默时间，s
 fire_cooldown_arm_delay: 0.1 # 开火后延迟触发静默，s
 max_shoot_middle_x: 0.1  # shoot_middle 模式 x 坐标阈值，m（装甲板水平偏移量）
+force_shoot_middle: true  # 强制启用 shoot_middle 发射逻辑，无视转速条件
 
 #####-----decider参数-----#####
 mode: 1

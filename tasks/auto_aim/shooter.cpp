@@ -22,6 +22,11 @@ Shooter::Shooter(const std::string & config_path)
   fire_cooldown_arm_delay_ =
     yaml["fire_cooldown_arm_delay"] ? yaml["fire_cooldown_arm_delay"].as<double>() : 0.01;
   max_shoot_middle_x_ = yaml["max_shoot_middle_x"].as<double>(0.1);  // 默认 0.1m
+
+  // 读取 spin_strategy，当为 "shoot_middle" 时自动启用强制模式
+  std::string spin_strategy = yaml["spin_strategy"].as<std::string>("adaptive");
+  bool config_force = yaml["force_shoot_middle"].as<bool>(false);
+  force_shoot_middle_ = config_force || (spin_strategy == "shoot_middle");
 }
 
 bool Shooter::shoot(
@@ -61,8 +66,11 @@ bool Shooter::shoot(
   double rotate_speed_rpm = std::abs(ekf_x[7]) * 30 / CV_PI;
 
   // ========== shoot_middle 模式开火判断 ==========
-  // 条件：转速在 60-90 RPM 且不在预瞄模式
-  if (rotate_speed_rpm >= 60 && rotate_speed_rpm <= 90 && !aimer.get_aim_preview()) {
+  // 条件：(转速在 60-90 RPM 或 force_shoot_middle) 且不在预瞄模式
+  bool use_shoot_middle = (force_shoot_middle_ ||
+                           (rotate_speed_rpm >= 60 && rotate_speed_rpm <= 90));
+
+  if (use_shoot_middle && !aimer.get_aim_preview()) {
     auto armor_list = target.armor_xyza_list();
     if (armor_list.size() >= 2) {
       // 按距离排序装甲板（与 Z_LION 一致）
