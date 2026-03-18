@@ -70,14 +70,14 @@ outpost_max_temp_lost_count: 300
 
 #####-----aimer参数-----#####
 yaw_offset: 1.8 # degree -2.5 正左
-pitch_offset: 2.8  # degree 2 正上
-comming_angle: 90 # degree
+pitch_offset: -1.2  # degree 2 正上
+comming_angle: 120 # degree
 leaving_angle: 5 # degree
 left_yaw_offset: -1
 right_yaw_offset: -0.6
 decision_speed: 2  # rad/s
-high_speed_delay_time: 0.014 # s
-low_speed_delay_time: 0.014 # s
+high_speed_delay_time: 0.020 # s
+low_speed_delay_time: 0.020 # s
 
 #####-----小陀螺策略参数-----#####
 # 可选策略: "preview" / "coming_leaving" / "shoot_middle" / "adaptive"
@@ -85,9 +85,9 @@ low_speed_delay_time: 0.014 # s
 # coming_leaving: 根据旋转方向选择coming/leaving的装甲板
 # shoot_middle: 瞄准车辆几何中心，适用于中等转速场景
 # adaptive: 根据转速和角度自动选择最优策略
-spin_strategy: "coming_leaving"
+spin_strategy: "adaptive"
 static_track_face_angle: 15  # 预瞄追踪角度，degree
-max_stability_track_rotate_speed: 2.0  # 云台最大稳定追踪角速度，rad/s
+max_stability_track_rotate_speed: 0.0  # 云台最大稳定追踪角速度，rad/s
 use_manual_rotate_speed: true  # 是否绕过观测角速度 true false
 manual_rotate_speed: 2.513        # 手动角速度(rad/s)，正负表示旋转方向
 spin_enter_speed: 2.4           # 进入小陀螺策略阈值(rad/s)
@@ -101,14 +101,14 @@ min_shoot_middle_distance: 1.0  # shoot_middle 模式最小距离，m
 max_shoot_middle_distance: 3.2  # shoot_middle 模式最大距离，m
 
 #####-----shooter参数-----#####
-first_tolerance: 1 # 近距离射击容差，degree
-second_tolerance: 0.2 # 远距离射击容差，degree
+first_tolerance: 1.0 # 近距离射击容差，degree
+second_tolerance: 1.3 # 远距离射击容差，degree
 judge_distance: 3 #距离判断阈值
 auto_fire: true # 是否由自瞄控制射击
-fire_cooldown: 1.9 # 开火静默时间，s
-fire_cooldown_arm_delay: 0.1 # 开火后延迟触发静默，s
+fire_cooldown: 0.0 # 开火静默时间，s
+fire_cooldown_arm_delay: 0.5 # 开火后延迟触发静默，s
 max_shoot_middle_x: 0.1  # shoot_middle 模式 x 坐标阈值，m（装甲板水平偏移量）
-force_shoot_middle: true  # 强制启用 shoot_middle 发射逻辑，无视转速条件
+force_shoot_middle: false #启用 shoot_middle 发射逻辑，无视转速条件 
 
 #####-----decider参数-----#####
 mode: 1

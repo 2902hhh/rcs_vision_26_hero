@@ -81,7 +81,7 @@ io::Command Aimer::aim(
 
   // 针对英雄机器人大弹丸射速较低的情况进行保护，避免除以0或弹道无解
   if (bullet_speed < 12) bullet_speed = 16;
-  bullet_speed = 16;
+  bullet_speed = 12;
    WATCH("bullet_speed", bullet_speed);
   // 考虑detecor和tracker所消耗的时间，此外假设aimer的用时可忽略不计
   auto future = timestamp;
