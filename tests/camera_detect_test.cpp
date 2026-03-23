@@ -10,6 +10,7 @@
 #include "tools/exiter.hpp"
 #include "tools/img_tools.hpp" // [新增] 引入绘图工具
 #include "tools/logger.hpp"
+#include "tools/debug_monitor.hpp"
 #include "tools/math_tools.hpp"
 
 const std::string keys =
@@ -40,6 +41,8 @@ int main(int argc, char * argv[])
   auto_aim::Solver solver(config_path);
 
   std::chrono::steady_clock::time_point timestamp;
+
+  WATCH("time", timestamp.time_since_epoch().count());
 
   while (!exiter.exit()) {
     cv::Mat img;
@@ -124,5 +127,7 @@ int main(int argc, char * argv[])
     if (key == 'q') break;
   }
 
-  return 0;
+  FLUSH_DEBUG();
+  
+    return 0;
 }
