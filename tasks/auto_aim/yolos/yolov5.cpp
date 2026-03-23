@@ -165,15 +165,19 @@ std::list<Armor> YOLOV5::parse(
 
         std::vector<cv::Point2f> armor_key_points;
 
-        // 颜色和类别独热向量
-        cv::Mat color_scores = output.row(r).colRange(9, 13);     // color
-        cv::Mat classes_scores = output.row(r).colRange(13, 22);  // num
+        // 输出定义：
+        // 0~7: 四个关键点坐标，顺序 TL->BL->BR->TR（从左上角逆时针）
+        // 8: 置信度
+        // 9~12: 颜色（红、蓝、灰、紫）
+        // 13~22: 数字/类型（G,1,2,3,4,5,O,Bs,Bb,other）
+        cv::Mat color_scores = output.row(r).colRange(9, 13);
+        cv::Mat classes_scores = output.row(r).colRange(13, 23);
         cv::Point class_id, color_id;
         double score_color, score_num;
         cv::minMaxLoc(classes_scores, NULL, &score_num, NULL, &class_id);
         cv::minMaxLoc(color_scores, NULL, &score_color, NULL, &color_id);
         
-        // 关键点顺序转换：模型输出为逆时针，这里 push_back 转换为顺时针 (TL, TR, BR, BL)
+        // 转换为 Armor 构造函数期望顺序：(TL, TR, BR, BL)
         armor_key_points.push_back(
           cv::Point2f(output.at<float>(r, 0) / scale, output.at<float>(r, 1) / scale));
         armor_key_points.push_back(
@@ -193,28 +197,31 @@ std::list<Armor> YOLOV5::parse(
 
         cv::Rect rect(min_x, min_y, max_x - min_x, max_y - min_y);
 
-        // 【修改点 2】：颜色 ID 映射适配
-        // 模型输出: 0红, 1蓝, 2灰, 3紫 -> 框架期望: 0蓝, 1红, 2灰
+        // 模型输出颜色: 0红, 1蓝, 2灰, 3紫
+        // Armor(color_id) 约定: 0蓝, 1红, 2灭(这里统一承接灰/紫)
         int mapped_color = 0; 
         if (color_id.x == 0) mapped_color = 1;      // 红
         else if (color_id.x == 1) mapped_color = 0; // 蓝
         else mapped_color = 2;                      // 灰/紫
 
-        // 【修改点 3】：类别 ID 映射适配
-        // 模型输出: 0:G, 1:1, 2:2, 3:3, 4:4, 5:5, 6:O, 7:Bs, 8:Bb
-        // 框架期望: 0:1, 1:2, 2:3, 3:4, 4:5, 5:Outpost, 6:Sentry, 7:Base
+        // 模型输出类别: 0:G, 1:1, 2:2, 3:3, 4:4, 5:5, 6:O, 7:Bs, 8:Bb, 9:other
+        // Armor(num_id) 约定:
+        //   0 -> sentry
+        //   1..5 -> one..five
+        //   6 -> outpost
+        //   7 -> base
         int mapped_num = 0;
         switch(class_id.x) {
-            case 0: mapped_num = 6; break; // G (哨兵) -> 框架的 6
-            case 1: mapped_num = 0; break; // 1号 -> 框架的 0
-            case 2: mapped_num = 1; break; // 2号 -> 框架的 1
-            case 3: mapped_num = 2; break; // 3号 -> 框架的 2
-            case 4: mapped_num = 3; break; // 4号 -> 框架的 3
-            case 5: mapped_num = 4; break; // 5号 -> 框架的 4
-            case 6: mapped_num = 5; break; // O (前哨站) -> 框架的 5
-            case 7: mapped_num = 7; break; // Bs (基地小) -> 框架的 7
-            case 8: mapped_num = 7; break; // Bb (基地大) -> 框架的 7
-            default: mapped_num = 0; break;
+          case 0: mapped_num = 0; break; // G -> sentry
+          case 1: mapped_num = 1; break; // 1 -> one
+          case 2: mapped_num = 2; break; // 2 -> two
+          case 3: mapped_num = 3; break; // 3 -> three
+          case 4: mapped_num = 4; break; // 4 -> four
+          case 5: mapped_num = 5; break; // 5 -> five
+          case 6: mapped_num = 6; break; // O -> outpost
+          case 7: mapped_num = 7; break; // Bs -> base
+          case 8: mapped_num = 7; break; // Bb -> base
+          default: mapped_num = 0; break; // other -> sentry(兜底)
         }
 
         color_ids.emplace_back(mapped_color);
