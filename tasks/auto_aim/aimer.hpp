@@ -69,8 +69,8 @@ private:
   SpinStrategy spin_strategy_;                // 策略类型
 
   // ========== shoot_middle 模式参数 ==========
-  double min_shoot_middle_rpm_;      // 最小瞄准中心转速阈值 (RPM)
-  double max_shoot_middle_rpm_;      // 最大瞄准中心转速阈值 (RPM)
+  double min_shoot_middle_rpm_;      // 最小瞄准中心转速阈值 (rad/s)
+  double max_shoot_middle_rpm_;      // 最大瞄准中心转速阈值 (rad/s)
   double min_shoot_middle_distance_; // 最小距离阈值 (m)
   double max_shoot_middle_distance_; // 最大距离阈值 (m)
 
@@ -92,7 +92,7 @@ private:
       const std::vector<Eigen::Vector4d>& armor_xyza_list) const;
 
   // 判断是否应该使用 shoot_middle 模式
-  bool should_use_shoot_middle(double rotate_speed_rpm, double distance_m) const;
+  bool should_use_shoot_middle(double rotate_speed_abs, double distance_m) const;
 };
 
 }  // namespace auto_aim

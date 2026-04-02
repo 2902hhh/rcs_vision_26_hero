@@ -60,8 +60,9 @@ Aimer::Aimer(const std::string & config_path)
   }
 
   // ========== 新增：shoot_middle 模式配置参数 ==========
-  min_shoot_middle_rpm_ = yaml["min_shoot_middle_rpm"].as<double>(60.0);
-  max_shoot_middle_rpm_ = yaml["max_shoot_middle_rpm"].as<double>(90.0);
+  // RPM thresholds converted to rad/s: 60 RPM ≈ 6.28, 90 RPM ≈ 9.42
+  min_shoot_middle_rpm_ = yaml["min_shoot_middle_rpm"].as<double>(60.0) * CV_PI / 30.0;
+  max_shoot_middle_rpm_ = yaml["max_shoot_middle_rpm"].as<double>(90.0) * CV_PI / 30.0;
   min_shoot_middle_distance_ = yaml["min_shoot_middle_distance"].as<double>(1.0);
   max_shoot_middle_distance_ = yaml["max_shoot_middle_distance"].as<double>(3.2);
 }
@@ -402,11 +403,12 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   // ========== 策略2：小陀螺 - 启用预瞄机制 ==========
-  double rotate_speed_rpm = rotate_speed_abs * 30 / CV_PI;
 
   // ========== 预瞄角度计算 ==========
+  // 60 RPM ≈ 6.28 rad/s: below this use adaptive angle, above use static
+  constexpr double kRpm60ToRadPerSec = 60.0 * CV_PI / 30.0;  // ≈ 6.28
   double track_face_angle;
-  if (rotate_speed_rpm < 60) {
+  if (rotate_speed_abs < kRpm60ToRadPerSec) {
     // 中速：自适应计算追踪角度
     track_face_angle = adaptive_calculate_track_face_angle(rotate_speed_abs);
   } else {
@@ -441,7 +443,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     double distance_m = car_middle.norm();  // 单位：米
 
     // 优先判断是否应该使用 shoot_middle
-    if (should_use_shoot_middle(rotate_speed_rpm, distance_m)) {
+    if (should_use_shoot_middle(rotate_speed_abs, distance_m)) {
       use_shoot_middle = true;
     } else {
       // 原有逻辑：根据角度判断
@@ -600,11 +602,11 @@ Eigen::Vector4d Aimer::calculate_middle_aim_point(
 }
 
 // ========== 判断是否应该使用 shoot_middle 模式 ==========
-bool Aimer::should_use_shoot_middle(double rotate_speed_rpm, double distance_m) const
+bool Aimer::should_use_shoot_middle(double rotate_speed_abs, double distance_m) const
 {
-  // 条件1: 转速在中间范围
-  bool rpm_in_range = (rotate_speed_rpm >= min_shoot_middle_rpm_ &&
-                       rotate_speed_rpm <= max_shoot_middle_rpm_);
+  // 条件1: 转速在中间范围 (thresholds stored in rad/s)
+  bool rpm_in_range = (rotate_speed_abs >= min_shoot_middle_rpm_ &&
+                       rotate_speed_abs <= max_shoot_middle_rpm_);
 
   // 条件2: 距离超出最佳跟踪范围
   bool distance_out_of_range = (distance_m < min_shoot_middle_distance_ ||
