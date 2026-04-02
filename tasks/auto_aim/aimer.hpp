@@ -46,8 +46,6 @@ private:
   double high_speed_delay_time_;
   double low_speed_delay_time_;
   double decision_speed_;
-  bool use_manual_rotate_speed_ = false;
-  double manual_rotate_speed_ = 2.5;
   double spin_enter_speed_;
   double spin_exit_speed_;
   double spin_speed_lpf_alpha_;

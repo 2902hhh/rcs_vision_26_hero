@@ -24,8 +24,6 @@ Aimer::Aimer(const std::string & config_path)
   high_speed_delay_time_ = yaml["high_speed_delay_time"].as<double>();
   low_speed_delay_time_ = yaml["low_speed_delay_time"].as<double>();
   decision_speed_ = yaml["decision_speed"].as<double>();
-  use_manual_rotate_speed_ = yaml["use_manual_rotate_speed"].as<bool>(false);
-  manual_rotate_speed_ = yaml["manual_rotate_speed"].as<double>(2.5);
   spin_enter_speed_ = yaml["spin_enter_speed"].as<double>(2.4);
   spin_exit_speed_ = yaml["spin_exit_speed"].as<double>(1.8);
   spin_speed_lpf_alpha_ = yaml["spin_speed_lpf_alpha"].as<double>(0.25);
@@ -66,9 +64,7 @@ io::Command Aimer::aim(
   auto target = targets.front();
 
   auto ekf = target.ekf();
-  double observed_rotate_speed = target.ekf_x()[7];
-  double effective_rotate_speed =
-    use_manual_rotate_speed_ ? manual_rotate_speed_ : observed_rotate_speed;
+  double effective_rotate_speed = target.ekf_x()[7];
   double delay_time = std::abs(effective_rotate_speed) > decision_speed_ ? high_speed_delay_time_
                                                                          : low_speed_delay_time_;
 
@@ -337,8 +333,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
 
   WATCH("rad", target.ekf_x()[7]);
-  double effective_rotate_speed =
-    use_manual_rotate_speed_ ? manual_rotate_speed_ : ekf_x[7];
+  double effective_rotate_speed = ekf_x[7];
   WATCH("rad_effective", effective_rotate_speed);
 
   double raw_rotate_speed_abs = std::abs(effective_rotate_speed);
