@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include "anti_spin_utils.hpp"
 #include "tools/debug_monitor.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
@@ -415,15 +416,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
   // 计算两块最近装甲板与枪口的角度
   // 按距离排序
-  std::vector<std::pair<Eigen::Vector4d, int>> sorted_armors;
-  for (int i = 0; i < armor_num; i++) {
-    sorted_armors.push_back({armor_xyza_list[i], i});
-  }
-  std::sort(sorted_armors.begin(), sorted_armors.end(),
-    [](const auto& a, const auto& b) {
-      return Eigen::Vector2d(a.first[0], a.first[1]).norm() <
-             Eigen::Vector2d(b.first[0], b.first[1]).norm();
-    });
+  auto sorted_armors = sort_armors_by_distance(armor_xyza_list);
 
   double shortest_face_angle = calculate_angle_abs(
     Eigen::Vector2d::Zero(), car_middle,
@@ -543,22 +536,6 @@ Eigen::Vector2d Aimer::calculate_rotate_point2d(
   rotated += car_middle;
 
   return rotated;
-}
-
-// ========== 计算三点角度（取绝对值）==========
-double Aimer::calculate_angle_abs(
-    const Eigen::Vector2d& A, const Eigen::Vector2d& B, const Eigen::Vector2d& C) const
-{
-  Eigen::Vector2d BA = A - B;
-  Eigen::Vector2d BC = C - B;
-  double dot = BA.dot(BC);
-  double norm_product = BA.norm() * BC.norm();
-  if (norm_product < 1e-6) return 0.0;
-
-  double cos_theta = std::clamp(dot / norm_product, -1.0, 1.0);
-  double angle = std::acos(cos_theta);
-  if (angle > CV_PI / 2) angle = angle - CV_PI;
-  return std::abs(angle);
 }
 
 // ========== 自适应计算追踪角度（三分法）==========

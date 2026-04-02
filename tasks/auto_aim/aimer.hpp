@@ -80,9 +80,6 @@ private:
   // 计算旋转后的预瞄点位置
   Eigen::Vector2d calculate_rotate_point2d(
       const Eigen::Vector2d& car_middle, double radius, double rotate_angle) const;
-  // 计算三点角度（取绝对值）
-  double calculate_angle_abs(
-      const Eigen::Vector2d& A, const Eigen::Vector2d& B, const Eigen::Vector2d& C) const;
   // 自适应计算追踪角度（三分法）
   double adaptive_calculate_track_face_angle(double rotate_speed_abs) const;
   // 计算旋转代价函数
