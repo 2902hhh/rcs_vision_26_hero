@@ -3,6 +3,7 @@
 #include <yaml-cpp/yaml.h>
 #include <algorithm>
 
+#include "anti_spin_utils.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/debug_monitor.hpp"
@@ -74,15 +75,7 @@ bool Shooter::shoot(
     auto armor_list = target.armor_xyza_list();
     if (armor_list.size() >= 2) {
       // 按距离排序装甲板（与 Z_LION 一致）
-      std::vector<std::pair<Eigen::Vector4d, int>> sorted;
-      for (size_t i = 0; i < armor_list.size(); i++) {
-        sorted.push_back({armor_list[i], (int)i});
-      }
-      std::sort(sorted.begin(), sorted.end(),
-        [](const auto& a, const auto& b) {
-          return Eigen::Vector2d(a.first[0], a.first[1]).norm() <
-                 Eigen::Vector2d(b.first[0], b.first[1]).norm();
-        });
+      auto sorted = sort_armors_by_distance(armor_list);
 
       // 检查最近两个装甲板的 x 坐标（与 Z_LION 一致）
       double armor_x_0 = std::abs(sorted[0].first[0]);  // 最近装甲板的 x 坐标绝对值
@@ -135,15 +128,7 @@ bool Shooter::shoot(
       Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
 
       // 按距离排序装甲板
-      std::vector<std::pair<Eigen::Vector4d, int>> sorted;
-      for (size_t i = 0; i < armor_list.size(); i++) {
-        sorted.push_back({armor_list[i], (int)i});
-      }
-      std::sort(sorted.begin(), sorted.end(),
-        [](const auto& a, const auto& b) {
-          return Eigen::Vector2d(a.first[0], a.first[1]).norm() <
-                 Eigen::Vector2d(b.first[0], b.first[1]).norm();
-        });
+      auto sorted = sort_armors_by_distance(armor_list);
 
       // 根据旋转方向选择目标装甲板
       Eigen::Vector4d left_point = sorted[0].first[0] < sorted[1].first[0] ?
@@ -287,18 +272,6 @@ std::vector<Eigen::Vector2d> Shooter::find_intersections(
   return intersections;
 }
 
-// ========== 计算三点角度 ==========
-double Shooter::angle_abc(const Eigen::Vector2d& A, const Eigen::Vector2d& B, const Eigen::Vector2d& C) const
-{
-  Eigen::Vector2d BA = A - B;
-  Eigen::Vector2d BC = C - B;
-  double dot = BA.dot(BC);
-  double norm_product = BA.norm() * BC.norm();
-  if (norm_product < 1e-6) return 0.0;
-  double cos_theta = std::clamp(dot / norm_product, -1.0, 1.0);
-  return std::acos(cos_theta);
-}
-
 // ========== 精确发射判断逻辑 ==========
 bool Shooter::judging_precision_shoot(
     const Eigen::Vector4d& shoot_target,
@@ -325,7 +298,7 @@ bool Shooter::judging_precision_shoot(
     intersections[0] : intersections[1];
 
   // ========== 计算装甲板到最佳位置的角度差 ==========
-  double included_angle = angle_abc(shoot_target2d, car_middle, near_intersection);
+  double included_angle = calculate_angle(shoot_target2d, car_middle, near_intersection);
 
   // ========== 核心：计算理想发射等待时间 ==========
   double perfect_shoot_wait_time = included_angle / std::abs(rotate_speed);

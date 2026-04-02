@@ -53,8 +53,6 @@ private:
       const Eigen::Vector4d& shoot_target,
       const Eigen::Vector2d& car_middle,
       double rotate_speed);
-  // 计算三点角度
-  double angle_abc(const Eigen::Vector2d& A, const Eigen::Vector2d& B, const Eigen::Vector2d& C) const;
   // 获取平均帧时间
   double get_frame_time_average() const;
 };
