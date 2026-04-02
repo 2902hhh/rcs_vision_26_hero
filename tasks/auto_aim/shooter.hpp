@@ -39,6 +39,7 @@ private:
   bool first_precision_ = true;           // 是否首次进入精确模式
   bool be_shooted_ = false;               // 当前装甲板是否已发射
   int last_armor_id_ = -1;                // 上一帧目标装甲板ID
+  bool precision_shoot_enabled_ = true;     // Whether precision shoot mode is enabled
   std::deque<double> frame_time_queue_;   // 帧时间队列
   static constexpr int queue_max_size_ = 10;
 
