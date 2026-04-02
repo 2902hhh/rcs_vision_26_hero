@@ -64,12 +64,14 @@ bool Shooter::shoot(
 
   auto target = targets.front();
   auto ekf_x = target.ekf_x();
-  double rotate_speed_rpm = std::abs(ekf_x[7]) * 30 / CV_PI;
+  double rotate_speed_abs = std::abs(ekf_x[7]);
 
   // ========== shoot_middle 模式开火判断 ==========
   // 条件：(转速在 60-90 RPM 或 force_shoot_middle) 且不在预瞄模式
+  // 60 RPM ≈ 6.28 rad/s, 90 RPM ≈ 9.42 rad/s
   bool use_shoot_middle = (force_shoot_middle_ ||
-                           (rotate_speed_rpm >= 60 && rotate_speed_rpm <= 90));
+                           (rotate_speed_abs >= 60.0 * CV_PI / 30.0 &&
+                            rotate_speed_abs <= 90.0 * CV_PI / 30.0));
 
   if (use_shoot_middle && !aimer.get_aim_preview()) {
     auto armor_list = target.armor_xyza_list();
@@ -117,8 +119,8 @@ bool Shooter::shoot(
   WATCH("shoot_middle_mode", 0);
 
   // ========== 新增：高速小陀螺精确发射模式 ==========
-  // 条件：转速 > 90 RPM 且不在预瞄模式
-  if (rotate_speed_rpm > 90 && !aimer.get_aim_preview()) {
+  // 条件：转速 > 90 RPM ≈ 9.42 rad/s 且不在预瞄模式
+  if (rotate_speed_abs > 90.0 * CV_PI / 30.0 && !aimer.get_aim_preview()) {
     precision_mode_ = true;
 
     auto armor_list = target.armor_xyza_list();
@@ -209,11 +211,11 @@ bool Shooter::shoot(
   static int debug_cnt = 0;
   if (debug_cnt++ % 100 == 0) { // 每100次调用打印一次
       tools::logger()->info(
-          "[Shooter] Dist:{:.2f}m Tol:{:.3f} | YawErr:{:.3f} OK:{} | PitchErr:{:.3f} OK:{} | RPM={:.1f}",
+          "[Shooter] Dist:{:.2f}m Tol:{:.3f} | YawErr:{:.3f} OK:{} | PitchErr:{:.3f} OK:{} | rad/s={:.2f}",
           distance, tolerance*57.3,
           yaw_aim_error, is_yaw_aimed,
           pitch_aim_error, is_pitch_aimed,
-          rotate_speed_rpm
+          rotate_speed_abs
       );
   }
   WATCH("yaw_diff",yaw_aim_error*57.3);
