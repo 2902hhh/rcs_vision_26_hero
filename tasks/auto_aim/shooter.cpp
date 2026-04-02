@@ -22,12 +22,6 @@ Shooter::Shooter(const std::string & config_path)
   fire_cooldown_ = yaml["fire_cooldown"].as<double>();
   fire_cooldown_arm_delay_ =
     yaml["fire_cooldown_arm_delay"] ? yaml["fire_cooldown_arm_delay"].as<double>() : 0.01;
-  max_shoot_middle_x_ = yaml["max_shoot_middle_x"].as<double>(0.1);  // 默认 0.1m
-
-  // 读取 spin_strategy，当为 "shoot_middle" 时自动启用强制模式
-  std::string spin_strategy = yaml["spin_strategy"].as<std::string>("adaptive");
-  bool config_force = yaml["force_shoot_middle"].as<bool>(false);
-  force_shoot_middle_ = config_force || (spin_strategy == "shoot_middle");
 }
 
 bool Shooter::shoot(
@@ -65,58 +59,6 @@ bool Shooter::shoot(
   auto target = targets.front();
   auto ekf_x = target.ekf_x();
   double rotate_speed_abs = std::abs(ekf_x[7]);
-
-  // ========== shoot_middle 模式开火判断 ==========
-  // 条件：(转速在 60-90 RPM 或 force_shoot_middle) 且不在预瞄模式
-  // 60 RPM ≈ 6.28 rad/s, 90 RPM ≈ 9.42 rad/s
-  bool use_shoot_middle = (force_shoot_middle_ ||
-                           (rotate_speed_abs >= 60.0 * CV_PI / 30.0 &&
-                            rotate_speed_abs <= 90.0 * CV_PI / 30.0));
-
-  if (use_shoot_middle && !aimer.get_aim_preview()) {
-    auto armor_list = target.armor_xyza_list();
-    if (armor_list.size() >= 2) {
-      // 按距离排序装甲板（与 Z_LION 一致）
-      auto sorted = sort_armors_by_distance(armor_list);
-
-      // 检查最近两个装甲板的 x 坐标（与 Z_LION 一致）
-      double armor_x_0 = std::abs(sorted[0].first[0]);  // 最近装甲板的 x 坐标绝对值
-      double armor_x_1 = std::abs(sorted[1].first[0]);  // 第二近装甲板的 x 坐标绝对值
-      double raw_x_0 = sorted[0].first[0];  // 最近装甲板的原始 x 坐标（带符号）
-
-      // 计算需要调整的量：正值=需要向右调，负值=需要向左调
-      // 如果 x > 0 (装甲板在右边)，需要向右调；x < 0 (装甲板在左边)，需要向左调
-      double adjust_hint = raw_x_0;  // 直接用原始 x 值作为调整提示
-
-      // 只要有一个装甲板的 x 坐标小于阈值，就允许开火
-      if (armor_x_0 < max_shoot_middle_x_ || armor_x_1 < max_shoot_middle_x_) {
-        if (!cooldown_cycle_active_) {
-          last_fire_time_ = now;
-          cooldown_cycle_active_ = true;
-        }
-        last_command_ = command;
-        WATCH("shoot_middle_fire", 1);
-        WATCH("armor_x_0", armor_x_0);
-        WATCH("armor_x_1", armor_x_1);
-        WATCH("shoot_middle_adjust", adjust_hint);
-        return true;
-      }
-
-      WATCH("shoot_middle_mode", 1);
-      WATCH("shoot_middle_fire", 0);
-      WATCH("armor_x_0", armor_x_0);
-      WATCH("armor_x_1", armor_x_1);
-      WATCH("shoot_middle_adjust", adjust_hint);
-      last_command_ = command;
-      return false;
-    }
-    // 装甲板数量不足时，也不允许开火，保持隔离
-    WATCH("shoot_middle_mode", 1);
-    WATCH("shoot_middle_fire", 0);
-    last_command_ = command;
-    return false;
-  }
-  WATCH("shoot_middle_mode", 0);
 
   // ========== 新增：高速小陀螺精确发射模式 ==========
   // 条件：转速 > 90 RPM ≈ 9.42 rad/s 且不在预瞄模式

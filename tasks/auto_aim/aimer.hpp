@@ -63,16 +63,9 @@ private:
   enum class SpinStrategy {
     preview,        // 预瞄模式
     coming_leaving, // Coming/Leaving模式
-    shoot_middle,   // 瞄准车辆中心模式
     adaptive        // 自适应模式（根据转速自动选择）
   };
   SpinStrategy spin_strategy_;                // 策略类型
-
-  // ========== shoot_middle 模式参数 ==========
-  double min_shoot_middle_rpm_;      // 最小瞄准中心转速阈值 (rad/s)
-  double max_shoot_middle_rpm_;      // 最大瞄准中心转速阈值 (rad/s)
-  double min_shoot_middle_distance_; // 最小距离阈值 (m)
-  double max_shoot_middle_distance_; // 最大距离阈值 (m)
 
   AimPoint choose_aim_point(const Target & target);
 
@@ -85,14 +78,6 @@ private:
   // 计算旋转代价函数
   double calculate_rotate_cost(double track_face_angle, double rotate_speed_abs) const;
 
-  // ========== shoot_middle 模式方法 ==========
-  // 计算车辆几何中心瞄准点
-  Eigen::Vector4d calculate_middle_aim_point(
-      const Target& target,
-      const std::vector<Eigen::Vector4d>& armor_xyza_list) const;
-
-  // 判断是否应该使用 shoot_middle 模式
-  bool should_use_shoot_middle(double rotate_speed_abs, double distance_m) const;
 };
 
 }  // namespace auto_aim

@@ -80,11 +80,9 @@ high_speed_delay_time: 0.020 # s
 low_speed_delay_time: 0.020 # s
 
 #####-----小陀螺策略参数-----#####
-# 可选策略: "preview" / "coming_leaving" / "shoot_middle" / "adaptive"
+# 可选策略: "preview" / "coming_leaving" / "adaptive"
 # preview: 预瞄模式，云台提前指向装甲板即将出现的位置（守株待兔）
 # coming_leaving: 根据旋转方向选择coming/leaving的装甲板
-# shoot_middle: 瞄准车辆几何中心，适用于中等转速场景
-# shoot_middle 将在后续版本移除
 # adaptive: 根据转速和角度自动选择最优策略
 spin_strategy: "adaptive"
 static_track_face_angle: 15  # 预瞄追踪角度，degree
@@ -102,8 +100,6 @@ judge_distance: 3 #距离判断阈值
 auto_fire: true # 是否由自瞄控制射击
 fire_cooldown: 0.0 # 开火静默时间，s
 fire_cooldown_arm_delay: 0.5 # 开火后延迟触发静默，s
-max_shoot_middle_x: 0.1  # shoot_middle 模式 x 坐标阈值，m（装甲板水平偏移量）
-force_shoot_middle: false #启用 shoot_middle 发射逻辑，无视转速条件 
 
 #####-----decider参数-----#####
 mode: 1
