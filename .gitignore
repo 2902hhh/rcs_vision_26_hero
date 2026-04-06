@@ -1,5 +1,7 @@
 .vscode/
 .github/
+.planning/
+.claude/
 build/
 Camera/
 logs/

@@ -115,7 +115,7 @@ std::list<Armor> YOLOV5::parse(
   // === 关键修改：自动判断模型类型 ===
   // 标准 YOLO 检测模型 (xywh+conf+cls) 通常列数较少 (6~10)
   // RM 装甲板模型 (xy*4 + conf + colors + nums) 通常列数 > 20
-  bool is_standard_detect = output.cols < 15; 
+  bool is_standard_detect = output.cols < 23;
 
   for (int r = 0; r < output.rows; r++) {
     if (is_standard_detect) {

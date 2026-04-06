@@ -90,7 +90,7 @@ max_stability_track_rotate_speed: 0.0  # 云台最大稳定追踪角速度，rad
 spin_enter_speed: 2.4           # 进入小陀螺策略阈值(rad/s)
 spin_exit_speed: 1.8            # 退出小陀螺策略阈值(rad/s)
 spin_speed_lpf_alpha: 0.25      # 转速低通滤波系数(0~1)
-precision_shoot: true            # 是否启用精确射击模式(高速小陀螺时瞄准火线交点)
+precision_shoot: false           # 是否启用精确射击模式(高速小陀螺时瞄准火线交点)
 
 #####-----shooter参数-----#####
 first_tolerance: 1.0 # 近距离射击容差，degree

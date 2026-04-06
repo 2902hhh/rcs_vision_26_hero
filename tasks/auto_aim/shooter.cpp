@@ -63,7 +63,7 @@ bool Shooter::shoot(
 
   // ========== 新增：高速小陀螺精确发射模式 ==========
   // 条件：转速 > 90 RPM ≈ 9.42 rad/s 且不在预瞄模式
-  if (precision_shoot_enabled_ && rotate_speed_abs > 90.0 * CV_PI / 30.0 && !aimer.get_aim_preview()) {
+  if (precision_shoot_enabled_ && !aimer.get_aim_preview()) {
     precision_mode_ = true;
 
     auto armor_list = target.armor_xyza_list();
