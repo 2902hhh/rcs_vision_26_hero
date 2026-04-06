@@ -89,7 +89,7 @@ int main(int argc, char * argv[])
         auto plan = planner.plan(
           target, gs.bullet_speed,
           gs.yaw / 57.29578, gs.yaw_vel / 57.29578,
-          gs.pitch / 57.29578, gs.pitch_vel/ 57.29578, t);
+          gs.pitch / 57.29578, gs.pitch_vel/ 57.29578);
 
         gimbal.send(
           plan.control, plan.fire, plan.yaw, plan.yaw_vel, plan.yaw_acc, plan.pitch, plan.pitch_vel,
