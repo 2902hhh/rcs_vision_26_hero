@@ -3,6 +3,7 @@
 #include <fmt/chrono.h>
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <filesystem>
 
 #include "tools/img_tools.hpp"
@@ -107,133 +108,127 @@ std::list<Armor> YOLOV5::detect(const cv::Mat & raw_img, int frame_count)
 std::list<Armor> YOLOV5::parse(
   double scale, cv::Mat & output, const cv::Mat & bgr_img, int frame_count)
 {
+  constexpr int OUTPUT_DIMS = 23;
+
+  if (output.cols != OUTPUT_DIMS) {
+    if (output.rows == OUTPUT_DIMS) {
+      cv::transpose(output, output);
+    } else {
+      tools::logger()->warn(
+        "YOLOV5 output shape mismatch: rows={}, cols={}, expected cols={}", output.rows,
+        output.cols, OUTPUT_DIMS);
+      return std::list<Armor>();
+    }
+  }
+
   std::vector<int> color_ids, num_ids;
   std::vector<float> confidences;
   std::vector<cv::Rect> boxes;
   std::vector<std::vector<cv::Point2f>> armors_key_points;
 
-  // === 关键修改：自动判断模型类型 ===
-  // 标准 YOLO 检测模型 (xywh+conf+cls) 通常列数较少 (6~10)
-  // RM 装甲板模型 (xy*4 + conf + colors + nums) 通常列数 > 20
-  bool is_standard_detect = output.cols < 23;
+  const float conf_threshold = std::max(score_threshold_, static_cast<float>(min_confidence_));
 
   for (int r = 0; r < output.rows; r++) {
-    if (is_standard_detect) {
-        // --- 逻辑分支 A: 弹丸/标准检测模型 ---
-        float conf = output.at<float>(r, 4);
-        if (conf < min_confidence_) continue; // 使用配置文件的置信度
-
-        float cx = output.at<float>(r, 0);
-        float cy = output.at<float>(r, 1);
-        float w = output.at<float>(r, 2);
-        float h = output.at<float>(r, 3);
-
-        // 还原坐标
-        float left = (cx - w / 2) / scale;
-        float top = (cy - h / 2) / scale;
-        float width = w / scale;
-        float height = h / scale;
-
-        cv::Rect rect(left, top, width, height);
-        boxes.emplace_back(rect);
-        confidences.emplace_back(conf);
-        
-        // 伪造装甲板数据以通过后续过滤器
-        color_ids.push_back(0); // Blue (0)
-        num_ids.push_back(2);   // ID 2 (Three), type=Small -> 这是一个"安全"的ID，不容易被过滤
-
-        // 伪造4个关键点 (用矩形角点代替)
-        std::vector<cv::Point2f> kps;
-        kps.push_back(cv::Point2f(left, top));           // TL
-        kps.push_back(cv::Point2f(left + width, top));   // TR
-        kps.push_back(cv::Point2f(left + width, top + height)); // BR
-        kps.push_back(cv::Point2f(left, top + height));  // BL
-        armors_key_points.emplace_back(kps);
-
-    } else {
-        // --- 逻辑分支 B: 原有装甲板 Pose 模型 ---
-        double score = output.at<float>(r, 8);
-        
-        // 【修改点 1】：智能 Sigmoid 判断
-        // 如果导出的模型没有做 Sigmoid（值不在 0~1 之间），则手动 Sigmoid
-        // 如果已经做过 Sigmoid，再次计算会导致高置信度被压低（如 0.9 变成 0.71）
-        if (score < 0.0 || score > 1.0) {
-            score = sigmoid(score);
-        }
-
-        if (score < score_threshold_) continue;
-
-        std::vector<cv::Point2f> armor_key_points;
-
-        // 输出定义：
-        // 0~7: 四个关键点坐标，顺序 TL->BL->BR->TR（从左上角逆时针）
-        // 8: 置信度
-        // 9~12: 颜色（红、蓝、灰、紫）
-        // 13~22: 数字/类型（G,1,2,3,4,5,O,Bs,Bb,other）
-        cv::Mat color_scores = output.row(r).colRange(9, 13);
-        cv::Mat classes_scores = output.row(r).colRange(13, 23);
-        cv::Point class_id, color_id;
-        double score_color, score_num;
-        cv::minMaxLoc(classes_scores, NULL, &score_num, NULL, &class_id);
-        cv::minMaxLoc(color_scores, NULL, &score_color, NULL, &color_id);
-        
-        // 转换为 Armor 构造函数期望顺序：(TL, TR, BR, BL)
-        armor_key_points.push_back(
-          cv::Point2f(output.at<float>(r, 0) / scale, output.at<float>(r, 1) / scale));
-        armor_key_points.push_back(
-          cv::Point2f(output.at<float>(r, 6) / scale, output.at<float>(r, 7) / scale));
-        armor_key_points.push_back(
-          cv::Point2f(output.at<float>(r, 4) / scale, output.at<float>(r, 5) / scale));
-        armor_key_points.push_back(
-          cv::Point2f(output.at<float>(r, 2) / scale, output.at<float>(r, 3) / scale));
-
-        // 计算包围盒
-        float min_x = armor_key_points[0].x, max_x = armor_key_points[0].x;
-        float min_y = armor_key_points[0].y, max_y = armor_key_points[0].y;
-        for (const auto& p : armor_key_points) {
-            min_x = std::min(min_x, p.x); max_x = std::max(max_x, p.x);
-            min_y = std::min(min_y, p.y); max_y = std::max(max_y, p.y);
-        }
-
-        cv::Rect rect(min_x, min_y, max_x - min_x, max_y - min_y);
-
-        // 模型输出颜色: 0红, 1蓝, 2灰, 3紫
-        // Armor(color_id) 约定: 0蓝, 1红, 2灭(这里统一承接灰/紫)
-        int mapped_color = 0; 
-        if (color_id.x == 0) mapped_color = 1;      // 红
-        else if (color_id.x == 1) mapped_color = 0; // 蓝
-        else mapped_color = 2;                      // 灰/紫
-
-        // 模型输出类别: 0:G, 1:1, 2:2, 3:3, 4:4, 5:5, 6:O, 7:Bs, 8:Bb, 9:other
-        // Armor(num_id) 约定:
-        //   0 -> sentry
-        //   1..5 -> one..five
-        //   6 -> outpost
-        //   7 -> base
-        int mapped_num = 0;
-        switch(class_id.x) {
-          case 0: mapped_num = 0; break; // G -> sentry
-          case 1: mapped_num = 1; break; // 1 -> one
-          case 2: mapped_num = 2; break; // 2 -> two
-          case 3: mapped_num = 3; break; // 3 -> three
-          case 4: mapped_num = 4; break; // 4 -> four
-          case 5: mapped_num = 5; break; // 5 -> five
-          case 6: mapped_num = 6; break; // O -> outpost
-          case 7: mapped_num = 7; break; // Bs -> base
-          case 8: mapped_num = 7; break; // Bb -> base
-          default: mapped_num = 0; break; // other -> sentry(兜底)
-        }
-
-        color_ids.emplace_back(mapped_color);
-        num_ids.emplace_back(mapped_num);
-        boxes.emplace_back(rect);
-        confidences.emplace_back(score);
-        armors_key_points.emplace_back(armor_key_points);
+    double score = output.at<float>(r, 8);
+    if (score < 0.0 || score > 1.0) {
+      score = sigmoid(score);
     }
+
+    if (score < conf_threshold) continue;
+
+    std::vector<cv::Point2f> armor_key_points;
+
+    // YOLOV5 输出定义：
+    // 0~7: 四个关键点坐标，顺序 TL->BL->BR->TR（从左上角逆时针）
+    // 8: 置信度
+    // 9~12: 颜色（红、蓝、灰、紫）
+    // 13~22: 数字/类型（G,1,2,3,4,5,O,Bs,Bb,other）
+    cv::Mat color_scores = output.row(r).colRange(9, 13);
+    cv::Mat classes_scores = output.row(r).colRange(13, 23);
+    cv::Point class_id, color_id;
+    double score_color, score_num;
+    cv::minMaxLoc(classes_scores, nullptr, &score_num, nullptr, &class_id);
+    cv::minMaxLoc(color_scores, nullptr, &score_color, nullptr, &color_id);
+
+    // 转换为 Armor 构造函数期望顺序：(TL, TR, BR, BL)
+    armor_key_points.push_back(
+      cv::Point2f(output.at<float>(r, 0) / scale, output.at<float>(r, 1) / scale));
+    armor_key_points.push_back(
+      cv::Point2f(output.at<float>(r, 6) / scale, output.at<float>(r, 7) / scale));
+    armor_key_points.push_back(
+      cv::Point2f(output.at<float>(r, 4) / scale, output.at<float>(r, 5) / scale));
+    armor_key_points.push_back(
+      cv::Point2f(output.at<float>(r, 2) / scale, output.at<float>(r, 3) / scale));
+
+    float min_x = armor_key_points[0].x;
+    float max_x = armor_key_points[0].x;
+    float min_y = armor_key_points[0].y;
+    float max_y = armor_key_points[0].y;
+    for (const auto & p : armor_key_points) {
+      min_x = std::min(min_x, p.x);
+      max_x = std::max(max_x, p.x);
+      min_y = std::min(min_y, p.y);
+      max_y = std::max(max_y, p.y);
+    }
+
+    cv::Rect rect(min_x, min_y, max_x - min_x, max_y - min_y);
+
+    // 模型输出颜色: 0红, 1蓝, 2灰, 3紫
+    // Armor(color_id) 约定: 0蓝, 1红, 2灭(灰/紫)
+    int mapped_color = 0;
+    if (color_id.x == 0) {
+      mapped_color = 1;
+    } else if (color_id.x == 1) {
+      mapped_color = 0;
+    } else {
+      mapped_color = 2;
+    }
+
+    // 模型输出类别: 0:G, 1:1, 2:2, 3:3, 4:4, 5:5, 6:O, 7:Bs, 8:Bb, 9:other
+    // Armor(num_id) 约定: 0->sentry, 1..5->one..five, 6->outpost, 7->base
+    int mapped_num = 0;
+    switch (class_id.x) {
+      case 0:
+        mapped_num = 0;
+        break;
+      case 1:
+        mapped_num = 1;
+        break;
+      case 2:
+        mapped_num = 2;
+        break;
+      case 3:
+        mapped_num = 3;
+        break;
+      case 4:
+        mapped_num = 4;
+        break;
+      case 5:
+        mapped_num = 5;
+        break;
+      case 6:
+        mapped_num = 6;
+        break;
+      case 7:
+        mapped_num = 7;
+        break;
+      case 8:
+        mapped_num = 7;
+        break;
+      default:
+        mapped_num = 0;
+        break;
+    }
+
+    color_ids.emplace_back(mapped_color);
+    num_ids.emplace_back(mapped_num);
+    boxes.emplace_back(rect);
+    confidences.emplace_back(score);
+    armors_key_points.emplace_back(armor_key_points);
   }
 
   std::vector<int> indices;
-  cv::dnn::NMSBoxes(boxes, confidences, score_threshold_, nms_threshold_, indices);
+  cv::dnn::NMSBoxes(boxes, confidences, conf_threshold, nms_threshold_, indices);
 
   std::list<Armor> armors;
   for (const auto & i : indices) {
@@ -249,8 +244,6 @@ std::list<Armor> YOLOV5::parse(
   
   // 过滤逻辑
   for (auto it = armors.begin(); it != armors.end();) {
-    // 如果是弹丸模式(标准检测)，可能需要跳过 check_name/check_type，或者确保伪造的数据能通过
-    // 这里保留检查，因为我们上面伪造了 ID=2 (ArmorName::three)
     if (!check_name(*it)) {
       it = armors.erase(it);
       continue;
@@ -261,8 +254,7 @@ std::list<Armor> YOLOV5::parse(
       continue;
     }
     
-    // 传统视觉矫正只对装甲板有效，弹丸不需要
-    if (use_traditional_ && !is_standard_detect) detector_.detect(*it, bgr_img);
+    if (use_traditional_) detector_.detect(*it, bgr_img);
 
     it->center_norm = get_center_norm(bgr_img, it->center);
     ++it;
