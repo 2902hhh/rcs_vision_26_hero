@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Skill(gsd:plan-phase)",
+      "Skill(gsd:add-phase)",
+      "Skill(gsd:discuss-phase)",
+      "Skill(gsd:progress)",
+      "Bash(ls:*)",
+      "Skill(gsd:update)"
+    ]
+  }
+}
