@@ -29,12 +29,17 @@ private:
   bool debug_, use_roi_, use_traditional_;
 
   const int class_num_ = 13;
-  const float nms_threshold_ = 0.3;
+  
+  // 修改1：去掉了 const，允许在 yaml 初始化时动态修改
+  float nms_threshold_ = 0.3; 
   const float score_threshold_ = 0.7;
   double min_confidence_, binary_threshold_;
 
   ov::Core core_;
   ov::CompiledModel compiled_model_;
+  
+  // 修改2：声明了全局复用的推理请求，极其提升帧率！
+  ov::InferRequest infer_request_;
 
   cv::Rect roi_;
   cv::Point2f offset_;
