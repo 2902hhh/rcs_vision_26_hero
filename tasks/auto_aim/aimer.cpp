@@ -243,7 +243,9 @@ io::Command Aimer::aim(
   cmd.pitch = pitch;
   cmd.yaw_vel = yaw_vel;
   cmd.pitch_vel = pitch_vel;
-  cmd.yaw_acc = yaw_acc;
+  // 用 yaw_acc 的异常值告诉下位机当前目标处于小陀螺状态。
+  // gimbal.send(bool, ...) 会把 rad/s^2 转成 deg/s^2，因此这里先换算成弧度域的等价值。
+  cmd.yaw_acc = spin_mode_ ? (999.0 / 57.29578) : yaw_acc;
   cmd.pitch_acc = pitch_acc;
   WATCH("target_yaw_deg", yaw * 57.3);
   // 填充调试用的目标状态信息 (可选)
@@ -286,6 +288,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   // 兜底保护：预瞄逻辑至少需要两块装甲板
   if (armor_num < 2) {
     aim_preview_ = false;
+    spin_mode_ = false;
     if (armor_num == 1) return {true, armor_xyza_list[0]};
     return {false, Eigen::Vector4d::Zero()};
   }
@@ -329,6 +332,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   // 如果装甲板未发生过跳变，则只有当前装甲板的位置已知
   if (!target.jumped) {
     aim_preview_ = false;
+    spin_mode_ = false;
     return {true, armor_xyza_list[0]};
   }
 
