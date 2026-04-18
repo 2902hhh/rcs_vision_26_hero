@@ -2,6 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 #include <algorithm>
+#include <cmath>
 
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
@@ -187,11 +188,26 @@ bool Shooter::shoot(
     be_shooted_ = false;  // 退出精确模式时重置
   }
 
-  // 2. 计算目标距离 (水平距离近似)
+  // 2. 计算目标距离（优先使用选中装甲板的水平距离）
   auto target_x = ekf_x[0];
   auto target_y = ekf_x[2];
   auto distance = std::sqrt(tools::square(target_x) + tools::square(target_y));
 
+  auto armor_list = target.armor_xyza_list();
+  if (!armor_list.empty()) {
+    auto selected_armor = *std::min_element(
+      armor_list.begin(), armor_list.end(),
+      [](const Eigen::Vector4d & a, const Eigen::Vector4d & b) {
+        return std::abs(a[0]) < std::abs(b[0]);
+      });
+
+    distance = std::sqrt(tools::square(selected_armor[0]) + tools::square(selected_armor[1]));
+    WATCH("selected_armor_x", selected_armor[0]);
+    WATCH("selected_armor_y", selected_armor[1]);
+  }
+
+  WATCH("target_x", target_x);
+  WATCH("target_y", target_y);
   // 3. 动态选择容忍度 (Tolerance)
   // 近距离用 first_tolerance (大)，远距离用 second_tolerance (小)
   auto tolerance = distance > judge_distance_ ? second_tolerance_ : first_tolerance_;
@@ -212,7 +228,7 @@ bool Shooter::shoot(
   bool is_yaw_stable = yaw_cmd_diff < tolerance * 2;
 
   // Yaw 对准: 实际 Yaw 误差小于容忍度
-  bool is_yaw_aimed = yaw_aim_error < 0.3/57.3; // 固定0.2度的Yaw对准要求，防止过于宽松导致误伤
+  bool is_yaw_aimed = yaw_aim_error < 0.8 /57.3; // 固定0.2度的Yaw对准要求，防止过于宽松导致误伤
 
   // === 新增: Pitch 对准 ===
   bool is_pitch_aimed = pitch_aim_error < tolerance;

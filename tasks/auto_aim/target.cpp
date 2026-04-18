@@ -9,7 +9,7 @@ namespace auto_aim
 {
 Target::Target(
   const Armor & armor, std::chrono::steady_clock::time_point t, double radius, int armor_num,
-  Eigen::VectorXd P0_dig)
+  Eigen::VectorXd P0_dig, bool use_ukf)
 : name(armor.name),
   armor_type(armor.type),
   jumped(false),
@@ -46,7 +46,7 @@ Target::Target(
     return c;
   };
 
-  ekf_ = tools::ExtendedKalmanFilter(x0, P0, x_add);  //初始化滤波器（预测量、预测量协方差）
+  ekf_ = tools::ExtendedKalmanFilter(x0, P0, x_add, use_ukf);  //初始化滤波器（预测量、预测量协方差）
 }
 
 // void Target::check_abnormal_state(const Armor & measurement, int layer)
@@ -110,7 +110,7 @@ Target::Target(
 // }
 
 
-Target::Target(double x, double vyaw, double radius, double h) : armor_num_(4)
+Target::Target(double x, double vyaw, double radius, double h, bool use_ukf) : armor_num_(4)
 {
   Eigen::VectorXd x0{{x, 0, 0, 0, 0, 0, 0, vyaw, radius, 0, h}};
   Eigen::VectorXd P0_dig{{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
@@ -123,7 +123,7 @@ Target::Target(double x, double vyaw, double radius, double h) : armor_num_(4)
     return c;
   };
 
-  ekf_ = tools::ExtendedKalmanFilter(x0, P0, x_add);  //初始化滤波器（预测量、预测量协方差）
+  ekf_ = tools::ExtendedKalmanFilter(x0, P0, x_add, use_ukf);  //初始化滤波器（预测量、预测量协方差）
 }
 
 void Target::predict(std::chrono::steady_clock::time_point t)
@@ -283,7 +283,7 @@ void Target::update_ypda(const Armor & armor, int id)
       // 增大 yaw/pitch 观测噪声以抑制抖动 (原值 6e-3 过小)
       Eigen::VectorXd R_dig{
         {4e-2, 4e-2,  //4e-3
-         log(std::abs(delta_angle) + 1) + 1,
+        log(std::abs(delta_angle) + 1) + 1,
          log(std::abs(armor.ypd_in_world[2]) + 1) / 200 + 9e-2}
       };
       R = R_dig.asDiagonal();
