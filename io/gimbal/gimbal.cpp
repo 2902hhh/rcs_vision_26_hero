@@ -1,5 +1,4 @@
 #include "gimbal.hpp"
-
 #include "tools/crc.hpp"
 #include "tools/logger.hpp"
 #include "tools/debug_monitor.hpp"
@@ -347,7 +346,7 @@ void Gimbal::read_thread()
                 state_.pitch_vel = rx_data_.pitch_vel;
                 state_.bullet_speed = rx_data_.bullet_speed;
                 state_.bullet_count = rx_data_.bullet_count;
-                
+                WATCH("speed_debug",state_.bullet_speed);
                  switch (rx_data_.mode) {
                     case 0: mode_ = GimbalMode::IDLE; break;
                     case 1: mode_ = GimbalMode::AUTO_AIM; break;
