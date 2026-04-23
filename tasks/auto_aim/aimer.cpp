@@ -361,16 +361,52 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   }
   double rotate_speed_abs = filtered_rotate_speed_abs_.value();
 
+  // 前哨站静止/转动迟滞判定（极简实现：仅在瞄准层判断，不改 Target 结构）
+  constexpr double OUTPOST_STATIC_OMEGA_THRESH = 0.15;
+  constexpr int OUTPOST_STATIC_ENTER_COUNT = 15;
+  constexpr int OUTPOST_STATIC_EXIT_COUNT = 5;
+  static bool outpost_is_static = false;
+  static int outpost_transition_count = 0;
+
   if (target.name == ArmorName::outpost) {
-    spin_mode_ = true;
+    if (rotate_speed_abs < OUTPOST_STATIC_OMEGA_THRESH) {
+      if (!outpost_is_static) {
+        outpost_transition_count++;
+        if (outpost_transition_count >= OUTPOST_STATIC_ENTER_COUNT) {
+          outpost_is_static = true;
+          outpost_transition_count = 0;
+        }
+      } else {
+        outpost_transition_count = 0;
+      }
+    } else {
+      if (outpost_is_static) {
+        outpost_transition_count++;
+        if (outpost_transition_count >= OUTPOST_STATIC_EXIT_COUNT) {
+          outpost_is_static = false;
+          outpost_transition_count = 0;
+        }
+      } else {
+        outpost_transition_count = 0;
+      }
+    }
+
+    // 转动态按小陀螺处理，静止态按非小陀螺处理
+    spin_mode_ = !outpost_is_static;
   } else if (spin_mode_) {
+    outpost_is_static = false;
+    outpost_transition_count = 0;
     if (rotate_speed_abs < spin_exit_speed_) spin_mode_ = false;
   } else {
+    outpost_is_static = false;
+    outpost_transition_count = 0;
     if (rotate_speed_abs > spin_enter_speed_) spin_mode_ = true;
   }
 
   WATCH("rotate_speed_raw", raw_rotate_speed_abs);
   WATCH("rotate_speed_filtered", rotate_speed_abs);
+  WATCH("outpost_is_static", outpost_is_static ? 1 : 0);
+  WATCH("outpost_static_count", outpost_transition_count);
   WATCH("spin_mode", spin_mode_ ? 1 : 0);
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
