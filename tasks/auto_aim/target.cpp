@@ -1,5 +1,6 @@
 #include "target.hpp"
 
+#include <algorithm>
 #include <numeric>
 
 #include "tools/logger.hpp"
@@ -129,6 +130,7 @@ Target::Target(double x, double vyaw, double radius, double h, bool use_ukf) : a
 void Target::predict(std::chrono::steady_clock::time_point t)
 {
   auto dt = tools::delta_time(t, t_);
+  last_predict_dt_ = std::max(dt, 1e-3);
   predict(dt);
   t_ = t;
 }
@@ -139,6 +141,7 @@ void Target::predict(std::chrono::steady_clock::time_point t)
 
 void Target::predict(double dt)
 {
+  last_predict_dt_ = std::max(dt, 1e-3);
   // 状态转移矩阵
   // clang-format off
   Eigen::MatrixXd F{
@@ -258,6 +261,7 @@ void Target::update(const Armor & armor)
 void Target::update_ypda(const Armor & armor, int id)
 {
   Eigen::MatrixXd H = h_jacobian(ekf_.x, id);
+  const double w_before_update = ekf_.x[7];
 
   // === 1. 计算观测噪声 R ===
   Eigen::MatrixXd R;
@@ -316,6 +320,12 @@ void Target::update_ypda(const Armor & armor, int id)
 
   // === 5. 更新 ===
   ekf_.update(z, H, R, h, z_subtract);
+
+  if (enable_w_acc_limit_) {
+    const double dt = std::max(last_predict_dt_, 1e-3);
+    const double max_dw = max_w_acc_ * dt;
+    ekf_.x[7] = std::clamp(ekf_.x[7], w_before_update - max_dw, w_before_update + max_dw);
+  }
 }
 
 Eigen::VectorXd Target::ekf_x() const { return ekf_.x; }

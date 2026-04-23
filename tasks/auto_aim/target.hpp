@@ -51,6 +51,9 @@ private:
   int update_count_;
 
   bool is_switch_, is_converged_;
+  bool enable_w_acc_limit_ = true;
+  double max_w_acc_ = 1.0;
+  double last_predict_dt_ = 0.01;
 
   tools::ExtendedKalmanFilter ekf_;
   std::chrono::steady_clock::time_point t_;

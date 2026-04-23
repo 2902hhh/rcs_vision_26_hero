@@ -1,0 +1,13 @@
+[Unit]
+Description=RCS Vision Standard Autostart
+After=network.target
+
+[Service]
+Type=oneshot
+User=rm
+WorkingDirectory=/home/rm/Desktop/rcs_vision_26_hero_classic
+ExecStart=/home/rm/Desktop/rcs_vision_26_hero_classic/autostart.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
