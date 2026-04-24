@@ -272,7 +272,7 @@ void Target::update_ypda(const Armor & armor, int id)
       double yaw_diff = tools::limit_rad(armor.ypr_in_world[0] - ekf_.x[6] + id * 2 * CV_PI / armor_num_);
       
       double r_yaw = 0.015;//1e-2
-      double r_pitch = 1e-1; // 高度噪声大一点
+      double r_pitch = 1e-3; // 高度噪声大一点
       double r_dist = 1e-1;
       double r_angle = 5e-2 + std::abs(yaw_diff) * 5.0; // 自适应角度噪声
 
@@ -381,9 +381,9 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
 
-  // 前哨站：三块装甲板物理上有固定高度差，ID 0/1/2 分别偏移 0/10/20cm
+  // 前哨站：三块装甲板物理上有固定高度差，ID 0/1/2 分别偏移 -10/0/+10cm
   if (name == ArmorName::outpost) {
-    armor_z = x[4] + id * 0.10;
+    armor_z = x[4] + (id - 1) * 0.10;
   }
 
   return {armor_x, armor_y, armor_z};
