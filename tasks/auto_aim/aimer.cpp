@@ -403,8 +403,17 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     if (rotate_speed_abs > spin_enter_speed_) spin_mode_ = true;
   }
 
+  // 前哨站旋转态下，后续策略使用固定角速度 2.5 rad/s（保留旋转方向）
+  constexpr double OUTPOST_SPIN_OMEGA = 2.5;
+  if (target.name == ArmorName::outpost && spin_mode_) {
+    double rotate_sign = (effective_rotate_speed >= 0) ? 1.0 : -1.0;
+    effective_rotate_speed = rotate_sign * OUTPOST_SPIN_OMEGA;
+    rotate_speed_abs = OUTPOST_SPIN_OMEGA;
+  }
+
   WATCH("rotate_speed_raw", raw_rotate_speed_abs);
   WATCH("rotate_speed_filtered", rotate_speed_abs);
+  WATCH("outpost_spin_omega_used", rotate_speed_abs);
   WATCH("outpost_is_static", outpost_is_static ? 1 : 0);
   WATCH("outpost_static_count", outpost_transition_count);
   WATCH("spin_mode", spin_mode_ ? 1 : 0);
