@@ -350,7 +350,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   WATCH("rad", target.ekf_x()[7]);
   double effective_rotate_speed =
     use_manual_rotate_speed_ ? manual_rotate_speed_ : ekf_x[7];
-  WATCH("rad_effective", effective_rotate_speed);
+
 
   double raw_rotate_speed_abs = std::abs(effective_rotate_speed);
   if (!filtered_rotate_speed_abs_.has_value()) {
@@ -411,13 +411,14 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     rotate_speed_abs = OUTPOST_SPIN_OMEGA;
   }
 
-  WATCH("rotate_speed_raw", raw_rotate_speed_abs);
-  WATCH("rotate_speed_filtered", rotate_speed_abs);
-  WATCH("outpost_spin_omega_used", rotate_speed_abs);
-  WATCH("outpost_is_static", outpost_is_static ? 1 : 0);
-  WATCH("outpost_static_count", outpost_transition_count);
-  WATCH("spin_mode", spin_mode_ ? 1 : 0);
-
+  // WATCH("rotate_speed_raw", raw_rotate_speed_abs);
+  // WATCH("rotate_speed_filtered", rotate_speed_abs);
+  // WATCH("outpost_spin_omega_used", rotate_speed_abs);
+  // WATCH("outpost_is_static", outpost_is_static ? 1 : 0);
+  // WATCH("outpost_static_count", outpost_transition_count);
+  // WATCH("spin_mode", spin_mode_ ? 1 : 0);
+  
+  ···WATCH("rad_effective", effective_rotate_speed);
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
   if (!spin_mode_) {
     aim_preview_ = false;
@@ -511,9 +512,9 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
     Eigen::Vector4d middle_aim = calculate_middle_aim_point(target, armor_xyza_list);
 
-    WATCH("shoot_middle_mode", 1);
-    WATCH("middle_aim_x", middle_aim[0]);
-    WATCH("middle_aim_y", middle_aim[1]);
+    // WATCH("shoot_middle_mode", 1);
+    // WATCH("middle_aim_x", middle_aim[0]);
+    // WATCH("middle_aim_y", middle_aim[1]);
 
     return {true, middle_aim};
   }
