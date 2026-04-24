@@ -417,8 +417,8 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   // WATCH("outpost_is_static", outpost_is_static ? 1 : 0);
   // WATCH("outpost_static_count", outpost_transition_count);
   // WATCH("spin_mode", spin_mode_ ? 1 : 0);
-  
-  ···WATCH("rad_effective", effective_rotate_speed);
+
+    WATCH("rad_effective", effective_rotate_speed);
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
   if (!spin_mode_) {
     aim_preview_ = false;
