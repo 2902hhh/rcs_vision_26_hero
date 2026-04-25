@@ -221,12 +221,9 @@ void Target::predict(double dt)
 void Target::update(const Armor & armor)
 {
   int id = 0;
-  bool outpost_z_match_ok = false;
-  bool outpost_dz_obs_reliable = false;
 
   if (name == ArmorName::outpost) {
     constexpr double OUTPOST_Z_MATCH_GATE = 0.12;
-    constexpr double OUTPOST_DZ_CORRECTION_GATE = 0.06;
     constexpr int OUTPOST_REJECT_REANCHOR_COUNT = 5;
     double min_z_error = 1e10;
 
@@ -257,8 +254,6 @@ void Target::update(const Armor & armor)
         min_z_error, armor.xyz_in_world[2], ekf_.x[4] + z_offsets[id], outpost_reject_count_);
     } else {
       outpost_reject_count_ = 0;
-      outpost_z_match_ok = true;
-      outpost_dz_obs_reliable = min_z_error < OUTPOST_DZ_CORRECTION_GATE;
     }
 
     tools::logger()->debug(
@@ -294,51 +289,21 @@ void Target::update(const Armor & armor)
 
   update_ypda(armor, id);
 
+  // 前哨站：慢回拉 + 硬限幅，不做观测高差写入
   if (name == ArmorName::outpost) {
-    constexpr double OUTPOST_DZ0_MIN = -0.20;
-    constexpr double OUTPOST_DZ0_MAX = -0.03;
-    constexpr double OUTPOST_DZ2_MIN = 0.03;
-    constexpr double OUTPOST_DZ2_MAX = 0.20;
-    constexpr double OUTPOST_OBS_GAIN_CROSS = 0.25;
-    constexpr double OUTPOST_OBS_STEP_MAIN = 0.008;
-    constexpr double OUTPOST_OBS_STEP_CROSS = 0.003;
+    constexpr double OUTPOST_DZ_TARGET_L = -0.10;
+    constexpr double OUTPOST_DZ_TARGET_R =  0.10;
+    constexpr double OUTPOST_DZ_SLEW     =  0.003;
+    constexpr double OUTPOST_DZ_L_MIN    = -0.12;
+    constexpr double OUTPOST_DZ_L_MAX    = -0.07;
+    constexpr double OUTPOST_DZ_R_MIN    =  0.07;
+    constexpr double OUTPOST_DZ_R_MAX    =  0.12;
 
-    auto & dz0 = ekf_.x[9];
-    auto & dz2 = ekf_.x[10];
+    ekf_.x[9]  += std::clamp(OUTPOST_DZ_TARGET_L - ekf_.x[9],  -OUTPOST_DZ_SLEW, OUTPOST_DZ_SLEW);
+    ekf_.x[10] += std::clamp(OUTPOST_DZ_TARGET_R - ekf_.x[10], -OUTPOST_DZ_SLEW, OUTPOST_DZ_SLEW);
 
-    if (outpost_z_match_ok && outpost_dz_obs_reliable) {
-      // 使用通过门控的观测高差，抑制切板时的慢漂
-      double dz_obs = armor.xyz_in_world[2] - ekf_.x[4];
-
-      if (id == 0) {
-        dz_obs = std::min(dz_obs, OUTPOST_DZ0_MAX);
-        double innovation = std::clamp(dz_obs - dz0, -OUTPOST_OBS_STEP_MAIN, OUTPOST_OBS_STEP_MAIN);
-        dz0 += innovation;
-        double cross_innovation = std::clamp((-dz0) - dz2, -OUTPOST_OBS_STEP_CROSS, OUTPOST_OBS_STEP_CROSS);
-        dz2 += OUTPOST_OBS_GAIN_CROSS * cross_innovation;
-      } else if (id == 2) {
-        dz_obs = std::max(dz_obs, OUTPOST_DZ2_MIN);
-        double innovation = std::clamp(dz_obs - dz2, -OUTPOST_OBS_STEP_MAIN, OUTPOST_OBS_STEP_MAIN);
-        dz2 += innovation;
-        double cross_innovation = std::clamp((-dz2) - dz0, -OUTPOST_OBS_STEP_CROSS, OUTPOST_OBS_STEP_CROSS);
-        dz0 += OUTPOST_OBS_GAIN_CROSS * cross_innovation;
-      } else {
-        // id==1 对上下高差不可观，避免协方差耦合导致缓慢偏移
-        dz0 = 0.97 * dz0 + 0.03 * (-0.10);
-        dz2 = 0.97 * dz2 + 0.03 * (0.10);
-      }
-    } else if (outpost_z_match_ok) {
-      // 通过大门限但不够可靠：仅做中等回拉，避免边缘帧引入突跳
-      dz0 = 0.98 * dz0 + 0.02 * (-0.10);
-      dz2 = 0.98 * dz2 + 0.02 * (0.10);
-    } else {
-      // 软拒绝帧：只做弱回拉，不写入观测高差
-      dz0 = 0.985 * dz0 + 0.015 * (-0.10);
-      dz2 = 0.985 * dz2 + 0.015 * (0.10);
-    }
-
-    dz0 = std::clamp(dz0, OUTPOST_DZ0_MIN, OUTPOST_DZ0_MAX);
-    dz2 = std::clamp(dz2, OUTPOST_DZ2_MIN, OUTPOST_DZ2_MAX);
+    ekf_.x[9]  = std::clamp(ekf_.x[9],  OUTPOST_DZ_L_MIN, OUTPOST_DZ_L_MAX);
+    ekf_.x[10] = std::clamp(ekf_.x[10], OUTPOST_DZ_R_MIN, OUTPOST_DZ_R_MAX);
   }
 }
 
@@ -406,41 +371,6 @@ void Target::update_ypda(const Armor & armor, int id)
     const double dt = std::max(last_predict_dt_, 1e-3);
     const double max_dw = max_w_acc_ * dt;
     ekf_.x[7] = std::clamp(ekf_.x[7], w_before_update - max_dw, w_before_update + max_dw);
-  }
-
-  if (name == ArmorName::outpost) {
-    constexpr double OUTPOST_DZ0_MIN = -0.20;
-    constexpr double OUTPOST_DZ0_MAX = -0.03;
-    constexpr double OUTPOST_DZ2_MIN = 0.03;
-    constexpr double OUTPOST_DZ2_MAX = 0.20;
-    constexpr double OUTPOST_TARGET_SPAN = 0.20;
-    constexpr double OUTPOST_MID_RELAX_GAIN = 0.25;
-    constexpr double OUTPOST_SPAN_RELAX_GAIN = 0.10;
-
-    auto & dz0 = ekf_.x[9];
-    auto & dz2 = ekf_.x[10];
-
-    // 约束 1：中点回零（id=1 为基准层，理想情况下 dz0 + dz2 ≈ 0）
-    const double mid = 0.5 * (dz0 + dz2);
-    dz0 -= OUTPOST_MID_RELAX_GAIN * mid;
-    dz2 -= OUTPOST_MID_RELAX_GAIN * mid;
-
-    // 约束 2：层间距回拉（抑制 x[9]/x[10] 长时塌缩或发散）
-    const double span = dz2 - dz0;
-    const double span_err = OUTPOST_TARGET_SPAN - span;
-    dz0 -= 0.5 * OUTPOST_SPAN_RELAX_GAIN * span_err;
-    dz2 += 0.5 * OUTPOST_SPAN_RELAX_GAIN * span_err;
-
-    // 约束 3：物理限幅
-    dz0 = std::clamp(dz0, OUTPOST_DZ0_MIN, OUTPOST_DZ0_MAX);
-    dz2 = std::clamp(dz2, OUTPOST_DZ2_MIN, OUTPOST_DZ2_MAX);
-
-    // 确保上下层顺序正确
-    if (dz2 <= dz0 + 0.06) {
-      const double center = 0.5 * (dz0 + dz2);
-      dz0 = std::clamp(center - 0.03, OUTPOST_DZ0_MIN, OUTPOST_DZ0_MAX);
-      dz2 = std::clamp(center + 0.03, OUTPOST_DZ2_MIN, OUTPOST_DZ2_MAX);
-    }
   }
 }
 
