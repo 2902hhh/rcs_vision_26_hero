@@ -212,6 +212,7 @@ void Target::predict(double dt)
   if (this->name == ArmorName::outpost) {
     this->ekf_.x[8] = 0.2765;
     this->ekf_.P(8, 8) = 1e-10;
+    this->ekf_.x[5] = 0.0;
   }
 
   ekf_.predict(F, Q, f);
@@ -220,29 +221,58 @@ void Target::predict(double dt)
 void Target::update(const Armor & armor)
 {
   int id = 0;
-  double min_z_error = 1e10;
 
-  // 高度匹配：id=0 用 x[9], id=1 为基准(0), id=2 用 x[10]
-  double z_offsets[3] = {ekf_.x[9], 0.0, ekf_.x[10]};
+  if (name == ArmorName::outpost) {
+    constexpr double OUTPOST_Z_MATCH_GATE = 0.12;
+    constexpr int OUTPOST_REJECT_REANCHOR_COUNT = 5;
+    double min_z_error = 1e10;
 
-  for (int i = 0; i < 3; i++) {
-    double predicted_z = ekf_.x[4] + z_offsets[i];
-    double z_error = std::abs(armor.xyz_in_world[2] - predicted_z);
-    if (z_error < min_z_error) {
-      min_z_error = z_error;
-      id = i;
+    // 前哨站高度匹配：id=0 用 x[9], id=1 为基准(0), id=2 用 x[10]
+    double z_offsets[3] = {ekf_.x[9], 0.0, ekf_.x[10]};
+    for (int i = 0; i < 3; i++) {
+      double predicted_z = ekf_.x[4] + z_offsets[i];
+      double z_error = std::abs(armor.xyz_in_world[2] - predicted_z);
+      if (z_error < min_z_error) {
+        min_z_error = z_error;
+        id = i;
+      }
+    }
+
+    // z 门控：超门限不再硬拒绝，改为软更新，连续超限后重锚高度
+    if (min_z_error > OUTPOST_Z_MATCH_GATE) {
+      outpost_reject_count_++;
+      if (outpost_reject_count_ >= OUTPOST_REJECT_REANCHOR_COUNT) {
+        ekf_.x[4] = armor.xyz_in_world[2] - z_offsets[id];
+        ekf_.x[5] = 0.0;
+        outpost_reject_count_ = 0;
+        tools::logger()->warn(
+          "[Outpost] z reanchor: id={}, z_obs={:.3f}, z_anchor={:.3f}", id,
+          armor.xyz_in_world[2], ekf_.x[4]);
+      }
+      tools::logger()->warn(
+        "[Outpost] z soft-reject: id={}, z_err={:.4f}, z_obs={:.3f}, z_pred={:.3f}, cnt={}", id,
+        min_z_error, armor.xyz_in_world[2], ekf_.x[4] + z_offsets[id], outpost_reject_count_);
+    } else {
+      outpost_reject_count_ = 0;
+    }
+
+    tools::logger()->debug(
+      "[Outpost] match: id={}, z_err={:.4f}, x[9]={:.4f}, x[10]={:.4f}, x[4]={:.3f}", id,
+      min_z_error, ekf_.x[9], ekf_.x[10], ekf_.x[4]);
+  } else {
+    auto min_angle_error = 1e10;
+    const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
+    for (int i = 0; i < armor_num_; i++) {
+      const auto & xyza = xyza_list[i];
+      Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
+      auto angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
+                         std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
+      if (std::abs(angle_error) < std::abs(min_angle_error)) {
+        id = i;
+        min_angle_error = angle_error;
+      }
     }
   }
-
-  // 门限：z 误差超过半个间距就不更新
-  if (min_z_error > 0.05) {
-    tools::logger()->warn("[Outpost] z match rejected: id={}, z_err={:.4f}, z_obs={:.3f}, z_pred={:.3f}",
-      id, min_z_error, armor.xyz_in_world[2], ekf_.x[4] + z_offsets[id]);
-    return;
-  }
-
-  tools::logger()->debug("[Outpost] match: id={}, z_err={:.4f}, x[9]={:.4f}, x[10]={:.4f}, x[4]={:.3f}",
-    id, min_z_error, ekf_.x[9], ekf_.x[10], ekf_.x[4]);
 
   if (id != 0) jumped = true;
 
@@ -346,6 +376,15 @@ std::vector<Eigen::Vector4d> Target::armor_xyza_list() const
 bool Target::diverged() const
 {
   auto r_ok = ekf_.x[8] > 0.05 && ekf_.x[8] < 0.9;
+
+  // 前哨站中 x[9]/x[10] 已用于层高差，不再参与半径合法性判据
+  if (name == ArmorName::outpost) {
+    if (r_ok) return false;
+    tools::logger()->debug(
+      "[Target][outpost] radius diverged, r={:.3f}, dz01={:.3f}, dz02={:.3f}", ekf_.x[8],
+      ekf_.x[9], ekf_.x[10]);
+    return true;
+  }
 
   auto l_ok = ekf_.x[8] + ekf_.x[9] > 0.05 && ekf_.x[8] + ekf_.x[9] < 0.9;
 

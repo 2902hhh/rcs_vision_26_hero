@@ -54,6 +54,7 @@ private:
   bool enable_w_acc_limit_ = true;
   double max_w_acc_ = 1.0;
   double last_predict_dt_ = 0.01;
+  int outpost_reject_count_ = 0;
 
   tools::ExtendedKalmanFilter ekf_;
   std::chrono::steady_clock::time_point t_;
