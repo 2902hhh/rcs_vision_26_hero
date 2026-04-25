@@ -355,6 +355,41 @@ void Target::update_ypda(const Armor & armor, int id)
     const double max_dw = max_w_acc_ * dt;
     ekf_.x[7] = std::clamp(ekf_.x[7], w_before_update - max_dw, w_before_update + max_dw);
   }
+
+  if (name == ArmorName::outpost) {
+    constexpr double OUTPOST_DZ0_MIN = -0.20;
+    constexpr double OUTPOST_DZ0_MAX = -0.03;
+    constexpr double OUTPOST_DZ2_MIN = 0.03;
+    constexpr double OUTPOST_DZ2_MAX = 0.20;
+    constexpr double OUTPOST_TARGET_SPAN = 0.20;
+    constexpr double OUTPOST_MID_RELAX_GAIN = 0.25;
+    constexpr double OUTPOST_SPAN_RELAX_GAIN = 0.10;
+
+    auto & dz0 = ekf_.x[9];
+    auto & dz2 = ekf_.x[10];
+
+    // 约束 1：中点回零（id=1 为基准层，理想情况下 dz0 + dz2 ≈ 0）
+    const double mid = 0.5 * (dz0 + dz2);
+    dz0 -= OUTPOST_MID_RELAX_GAIN * mid;
+    dz2 -= OUTPOST_MID_RELAX_GAIN * mid;
+
+    // 约束 2：层间距回拉（抑制 x[9]/x[10] 长时塌缩或发散）
+    const double span = dz2 - dz0;
+    const double span_err = OUTPOST_TARGET_SPAN - span;
+    dz0 -= 0.5 * OUTPOST_SPAN_RELAX_GAIN * span_err;
+    dz2 += 0.5 * OUTPOST_SPAN_RELAX_GAIN * span_err;
+
+    // 约束 3：物理限幅
+    dz0 = std::clamp(dz0, OUTPOST_DZ0_MIN, OUTPOST_DZ0_MAX);
+    dz2 = std::clamp(dz2, OUTPOST_DZ2_MIN, OUTPOST_DZ2_MAX);
+
+    // 确保上下层顺序正确
+    if (dz2 <= dz0 + 0.06) {
+      const double center = 0.5 * (dz0 + dz2);
+      dz0 = std::clamp(center - 0.03, OUTPOST_DZ0_MIN, OUTPOST_DZ0_MAX);
+      dz2 = std::clamp(center + 0.03, OUTPOST_DZ2_MIN, OUTPOST_DZ2_MAX);
+    }
+  }
 }
 
 Eigen::VectorXd Target::ekf_x() const { return ekf_.x; }
