@@ -81,14 +81,22 @@ std::list<Target> Tracker::track(
     return {};
   }
 
-  // 收敛效果检测：
-  if (
-    std::accumulate(
-      target_.ekf().recent_nis_failures.begin(), target_.ekf().recent_nis_failures.end(), 0) >=
-    (0.45 * target_.ekf().window_size)) {
-    tools::logger()->debug("[Target] Bad Converge Found!");
-    state_ = "lost";
-    return {};
+  // 收敛效果检测：窗口未满不判坏收敛；前哨站阈值放宽
+  const auto & nis_failures = target_.ekf().recent_nis_failures;
+  const auto nis_window_size = target_.ekf().window_size;
+  if (nis_failures.size() >= nis_window_size) {
+    const int nis_fail_count =
+      std::accumulate(nis_failures.begin(), nis_failures.end(), 0);
+    const double fail_ratio = static_cast<double>(nis_fail_count) / nis_window_size;
+    const double bad_converge_ratio_threshold =
+      (target_.name == ArmorName::outpost) ? 0.75 : 0.45;
+    if (fail_ratio >= bad_converge_ratio_threshold) {
+      tools::logger()->debug(
+        "[Target] Bad Converge Found! fail_ratio={:.2f}, threshold={:.2f}", fail_ratio,
+        bad_converge_ratio_threshold);
+      state_ = "lost";
+      return {};
+    }
   }
 
   if (state_ == "lost") return {};
