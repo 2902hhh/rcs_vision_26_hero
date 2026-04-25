@@ -235,7 +235,14 @@ void Target::update(const Armor & armor)
   }
 
   // 门限：z 误差超过半个间距就不更新
-  if (min_z_error > 0.05) return;
+  if (min_z_error > 0.05) {
+    tools::logger()->warn("[Outpost] z match rejected: id={}, z_err={:.4f}, z_obs={:.3f}, z_pred={:.3f}",
+      id, min_z_error, armor.xyz_in_world[2], ekf_.x[4] + z_offsets[id]);
+    return;
+  }
+
+  tools::logger()->debug("[Outpost] match: id={}, z_err={:.4f}, x[9]={:.4f}, x[10]={:.4f}, x[4]={:.3f}",
+    id, min_z_error, ekf_.x[9], ekf_.x[10], ekf_.x[4]);
 
   if (id != 0) jumped = true;
 
