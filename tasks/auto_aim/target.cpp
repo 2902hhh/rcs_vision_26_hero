@@ -37,7 +37,15 @@ Target::Target(
   // w: angular velocity
   // l: r2 - r1
   // h: z2 - z1
-  Eigen::VectorXd x0{{center_x, 0, center_y, 0, center_z, 0, ypr[0], 0, r, 0, 0}};  //初始化预测量
+  // 前哨站：x[9]=id=0高差偏移, x[10]=id=2高差偏移, x[6]偏移+2π/3匹配首帧id=1
+  double init_l = 0, init_h = 0;
+  double init_angle = ypr[0];
+  if (name == ArmorName::outpost) {
+    init_l = -0.10;
+    init_h = 0.10;
+    init_angle = ypr[0] + 2.0 * CV_PI / 3.0;
+  }
+  Eigen::VectorXd x0{{center_x, 0, center_y, 0, center_z, 0, init_angle, 0, r, init_l, init_h}};
   Eigen::MatrixXd P0 = P0_dig.asDiagonal();
 
   // 防止夹角求和出现异常值
@@ -211,36 +219,23 @@ void Target::predict(double dt)
 
 void Target::update(const Armor & armor)
 {
-  // 装甲板匹配
-  int id;
-  auto min_angle_error = 1e10;
-  const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
+  int id = 0;
+  double min_z_error = 1e10;
 
-  std::vector<std::pair<Eigen::Vector4d, int>> xyza_i_list;
-  for (int i = 0; i < armor_num_; i++) {
-    xyza_i_list.push_back({xyza_list[i], i});
-  }
+  // 高度匹配：id=0 用 x[9], id=1 为基准(0), id=2 用 x[10]
+  double z_offsets[3] = {ekf_.x[9], 0.0, ekf_.x[10]};
 
-  std::sort(
-    xyza_i_list.begin(), xyza_i_list.end(),
-    [](const std::pair<Eigen::Vector4d, int> & a, const std::pair<Eigen::Vector4d, int> & b) {
-      Eigen::Vector3d ypd1 = tools::xyz2ypd(a.first.head(3));
-      Eigen::Vector3d ypd2 = tools::xyz2ypd(b.first.head(3));
-      return ypd1[2] < ypd2[2];
-    });
-
-  // 取前3个distance最小的装甲板
   for (int i = 0; i < 3; i++) {
-    const auto & xyza = xyza_i_list[i].first;
-    Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
-    auto angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
-                       std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
-
-    if (std::abs(angle_error) < std::abs(min_angle_error)) {
-      id = xyza_i_list[i].second;
-      min_angle_error = angle_error;
+    double predicted_z = ekf_.x[4] + z_offsets[i];
+    double z_error = std::abs(armor.xyz_in_world[2] - predicted_z);
+    if (z_error < min_z_error) {
+      min_z_error = z_error;
+      id = i;
     }
   }
+
+  // 门限：z 误差超过半个间距就不更新
+  if (min_z_error > 0.05) return;
 
   if (id != 0) jumped = true;
 
@@ -268,13 +263,10 @@ void Target::update_ypda(const Armor & armor, int id)
 
   if (name == ArmorName::outpost) {
       // --- 前哨站专用 R ---
-      // 计算角度残差
-      double yaw_diff = tools::limit_rad(armor.ypr_in_world[0] - ekf_.x[6] + id * 2 * CV_PI / armor_num_);
-      
-      double r_yaw = 0.015;//1e-2
-      double r_pitch = 1e-3; // 高度噪声大一点
+      double r_yaw = 0.015;
+      double r_pitch = 1e-3;
       double r_dist = 1e-1;
-      double r_angle = 5e-2 + std::abs(yaw_diff) * 5.0; // 自适应角度噪声
+      double r_angle = 0.1;  // 固定角度噪声，替代自适应
 
       Eigen::VectorXd R_dig{{r_yaw, r_pitch, r_dist, r_angle}};
       R = R_dig.asDiagonal();
@@ -381,9 +373,10 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
 
-  // 前哨站：三块装甲板物理上有固定高度差，ID 0/1/2 分别偏移 -10/0/+10cm
+  // 前哨站：高差从状态量 x[9]/x[10] 读取（在线估计）
   if (name == ArmorName::outpost) {
-    armor_z = x[4] + (id - 1) * 0.10;
+    double z_offsets[3] = {x[9], 0.0, x[10]};
+    armor_z = x[4] + z_offsets[id];
   }
 
   return {armor_x, armor_y, armor_z};
@@ -405,11 +398,19 @@ Eigen::MatrixXd Target::h_jacobian(const Eigen::VectorXd & x, int id) const
 
   auto dz_dh = (use_l_h) ? 1.0 : 0.0;
 
+  // 前哨站：x[9]=id=0高差, x[10]=id=2高差
+  double dz_dl_outpost = 0.0;
+  double dz_dh_outpost = 0.0;
+  if (name == ArmorName::outpost) {
+    if (id == 0) dz_dl_outpost = 1.0;
+    if (id == 2) dz_dh_outpost = 1.0;
+  }
+
   // clang-format off
   Eigen::MatrixXd H_armor_xyza{
     {1, 0, 0, 0, 0, 0, dx_da, 0, dx_dr, dx_dl,     0},
     {0, 0, 1, 0, 0, 0, dy_da, 0, dy_dr, dy_dl,     0},
-    {0, 0, 0, 0, 1, 0,     0, 0,     0,     0, dz_dh},
+    {0, 0, 0, 0, 1, 0,     0, 0,     0, dz_dl_outpost, (name == ArmorName::outpost) ? dz_dh_outpost : dz_dh},
     {0, 0, 0, 0, 0, 0,     1, 0,     0,     0,     0}
   };
   // clang-format on
