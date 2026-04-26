@@ -283,7 +283,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 {
   Eigen::VectorXd ekf_x = target.ekf_x();
   std::vector<Eigen::Vector4d> armor_xyza_list = target.aim_armor_xyza_list();
-  auto armor_num = armor_xyza_list.size();
+  int armor_num = static_cast<int>(armor_xyza_list.size());
 
   // 兜底保护：预瞄逻辑至少需要两块装甲板
   if (armor_num < 2) {
