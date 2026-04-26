@@ -41,6 +41,9 @@ public:
 
   bool convergened();
 
+  // 返回最低板的 angular id（前哨站专用），-1 表示尚未确定
+  int lowest_plate_id() const { return lowest_plate_id_; }
+
   bool isinit = false;
 
   bool checkinit();
@@ -58,6 +61,11 @@ private:
 
   tools::ExtendedKalmanFilter ekf_;
   std::chrono::steady_clock::time_point t_;
+
+  // 前哨站最低板追踪（通过 z 观测确定哪个 angular id 是物理最低板）
+  int lowest_plate_id_ = -1;
+  double id_z_sum_[3] = {0, 0, 0};
+  int id_z_count_[3] = {0, 0, 0};
 
   void update_ypda(const Armor & armor, int id);  // yaw pitch distance angle
 

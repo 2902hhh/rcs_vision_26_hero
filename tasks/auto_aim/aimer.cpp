@@ -304,6 +304,12 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     return {true, armor_xyza_list[0]};
   }
 
+  // 前哨站：锁定最低板，跳过所有策略选择
+  if (target.name == ArmorName::outpost && target.lowest_plate_id() >= 0) {
+    aim_preview_ = false;
+    return {true, armor_xyza_list[target.lowest_plate_id()]};
+  }
+
   // 整车旋转中心的球坐标yaw
   auto center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
   Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);

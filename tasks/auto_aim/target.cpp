@@ -239,6 +239,24 @@ void Target::update(const Armor & armor)
     }
   }
 
+  // 前哨站：通过 z 观测标记最低板
+  if (name == ArmorName::outpost && id < 3) {
+    id_z_sum_[id] += armor.xyz_in_world[2];
+    id_z_count_[id]++;
+    // 三个板都观测过后，确定最低板
+    if (id_z_count_[0] >= 2 && id_z_count_[1] >= 2 && id_z_count_[2] >= 2) {
+      lowest_plate_id_ = 0;
+      double min_avg = id_z_sum_[0] / id_z_count_[0];
+      for (int i = 1; i < 3; i++) {
+        double avg = id_z_sum_[i] / id_z_count_[i];
+        if (avg < min_avg) {
+          min_avg = avg;
+          lowest_plate_id_ = i;
+        }
+      }
+    }
+  }
+
   if (id != 0) jumped = true;
 
   if (id != last_id) {
