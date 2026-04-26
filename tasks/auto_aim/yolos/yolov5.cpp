@@ -177,9 +177,9 @@ std::list<Armor> YOLOV5::parse(
     }
 
     // 保持 YOLOV5 历史偏移逻辑不变，仅将“蓝三”(偏移后 mapped_num==3) 映射为前哨站
-    if (mapped_color == 0 && mapped_num == 3) {
-      mapped_num = 6;
-    }
+    // if (mapped_color == 0 && mapped_num == 3) {
+    //   mapped_num = 6;
+    // }
 
     color_ids.emplace_back(mapped_color);
     num_ids.emplace_back(mapped_num);
