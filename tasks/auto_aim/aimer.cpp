@@ -304,12 +304,6 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     return {true, armor_xyza_list[0]};
   }
 
-  // 前哨站：锁定最低板，跳过所有策略选择
-  if (target.name == ArmorName::outpost && target.lowest_plate_id() >= 0) {
-    aim_preview_ = false;
-    return {true, armor_xyza_list[target.lowest_plate_id()]};
-  }
-
   // 整车旋转中心的球坐标yaw
   auto center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
   Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
@@ -396,6 +390,10 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
   if (!spin_mode_) {
     aim_preview_ = false;
+    // 前哨站静止时锁定最低板
+    if (target.name == ArmorName::outpost && target.lowest_plate_id() >= 0) {
+      return {true, armor_xyza_list[target.lowest_plate_id()]};
+    }
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
     for (int i = 0; i < armor_num; i++) {
@@ -531,6 +529,18 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     if (target.name == ArmorName::outpost) {
       coming_angle = 70 / 57.3;
       leaving_angle = 30 / 57.3;
+    }
+
+    // 前哨站：只对最低板做 coming/leaving 判断
+    if (target.name == ArmorName::outpost && target.lowest_plate_id() >= 0) {
+      int lid = target.lowest_plate_id();
+      if (std::abs(delta_angle_list[lid]) <= coming_angle) {
+        if ((effective_rotate_speed > 0 && delta_angle_list[lid] < leaving_angle) ||
+            (effective_rotate_speed < 0 && delta_angle_list[lid] > -leaving_angle)) {
+          return {true, armor_xyza_list[lid]};
+        }
+      }
+      return {false, armor_xyza_list[lid]};
     }
 
     for (int i = 0; i < armor_num; i++) {

@@ -270,7 +270,18 @@ void Target::update(const Armor & armor)
   last_id = id;
   update_count_++;
 
-  update_ypda(armor, id);
+  // 前哨站 z 补偿：减去经验偏移，消除三板高度差导致的 x[4] 漂移
+  if (name == ArmorName::outpost && lowest_plate_id_ >= 0) {
+    double base_z = id_z_sum_[lowest_plate_id_] / id_z_count_[lowest_plate_id_];
+    double obs_z_avg = id_z_sum_[id] / id_z_count_[id];
+    double z_offset = obs_z_avg - base_z;
+    Armor adjusted = armor;
+    adjusted.xyz_in_world[2] -= z_offset;
+    adjusted.ypd_in_world = tools::xyz2ypd(adjusted.xyz_in_world);
+    update_ypda(adjusted, id);
+  } else {
+    update_ypda(armor, id);
+  }
 }
 
 void Target::update_ypda(const Armor & armor, int id)
