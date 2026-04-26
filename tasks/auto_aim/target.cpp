@@ -234,6 +234,7 @@ void Target::update(const Armor & armor)
     // 真实高度偏移（仅用于识别，模型无高度差）
     // x[4] = 最低板 z，id=0 偏移0，id=1 高 0.10，id=2 高 0.20
     constexpr double Z_OFFSETS[3] = {0.0, 0.10, 0.20};
+    constexpr double Z_MATCH_GATE = 0.06;  // 板间距一半，超过则匹配不可靠
     double min_z_error = 1e10;
 
     for (int i = 0; i < 3; i++) {
@@ -247,6 +248,14 @@ void Target::update(const Armor & armor)
 
     tools::logger()->debug(
       "[Outpost] match: id={}, z_err={:.4f}, x[4]={:.3f}", id, min_z_error, ekf_.x[4]);
+
+    // z 匹配不可靠时跳过更新，避免错误压平导致 x[4] 漂移
+    if (min_z_error > Z_MATCH_GATE) {
+      tools::logger()->debug("[Outpost] z-gate reject: z_err={:.4f}", min_z_error);
+      last_id = id;
+      update_count_++;
+      return;
+    }
 
     // 压平高度差：减去已知偏移，等效为最低板高度后送入 EKF
     obs_armor.xyz_in_world[2] -= Z_OFFSETS[id];
