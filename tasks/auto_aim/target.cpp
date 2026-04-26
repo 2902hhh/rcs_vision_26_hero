@@ -40,13 +40,6 @@ Target::Target(
   // 前哨站：x[9]=id=0高差偏移, x[10]=id=2高差偏移, x[6]偏移+2π/3匹配首帧id=1
   double init_l = 0, init_h = 0;
   double init_angle = ypr[0];
-  if (name == ArmorName::outpost) {
-    init_l = -0.10;
-    init_h = 0.10;
-    init_angle = ypr[0] + 2.0 * CV_PI / 3.0;
-    // x[4] 取最低板高度：首帧映射到 id=1（中间板），减去 0.10 得到最低板 z
-    center_z -= 0.10;
-  }
   Eigen::VectorXd x0{{center_x, 0, center_y, 0, center_z, 0, init_angle, 0, r, init_l, init_h}};
   Eigen::MatrixXd P0 = P0_dig.asDiagonal();
 
@@ -231,51 +224,18 @@ void Target::predict(double dt)
 void Target::update(const Armor & armor)
 {
   int id = 0;
-  Armor obs_armor = armor;  // 前哨站会压平高度后使用此副本
 
-  if (name == ArmorName::outpost) {
-    // 真实高度偏移（仅用于识别，模型无高度差）
-    // x[4] = 最低板 z，id=0 偏移0，id=1 高 0.10，id=2 高 0.20
-    constexpr double Z_OFFSETS[3] = {0.0, 0.10, 0.20};
-    constexpr double Z_MATCH_GATE = 0.06;  // 板间距一半，超过则匹配不可靠
-    double min_z_error = 1e10;
-
-    for (int i = 0; i < 3; i++) {
-      double predicted_z = ekf_.x[4] + Z_OFFSETS[i];
-      double z_error = std::abs(armor.xyz_in_world[2] - predicted_z);
-      if (z_error < min_z_error) {
-        min_z_error = z_error;
-        id = i;
-      }
-    }
-
-    tools::logger()->debug(
-      "[Outpost] match: id={}, z_err={:.4f}, x[4]={:.3f}", id, min_z_error, ekf_.x[4]);
-
-    // z 匹配不可靠时跳过更新，避免错误压平导致 x[4] 漂移
-    if (min_z_error > Z_MATCH_GATE) {
-      tools::logger()->debug("[Outpost] z-gate reject: z_err={:.4f}", min_z_error);
-      last_id = id;
-      update_count_++;
-      return;
-    }
-
-    // 压平高度差：减去已知偏移，等效为最低板高度后送入 EKF
-    obs_armor.xyz_in_world[2] -= Z_OFFSETS[id];
-    Eigen::VectorXd flat_ypd = tools::xyz2ypd(obs_armor.xyz_in_world);
-    obs_armor.ypd_in_world = flat_ypd;
-  } else {
-    auto min_angle_error = 1e10;
-    const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
-    for (int i = 0; i < armor_num_; i++) {
-      const auto & xyza = xyza_list[i];
-      Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
-      auto angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
-                         std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
-      if (std::abs(angle_error) < std::abs(min_angle_error)) {
-        id = i;
-        min_angle_error = angle_error;
-      }
+  // 前哨站和普通装甲板统一使用角度匹配（120° 间隔远大于角度噪声，匹配可靠）
+  auto min_angle_error = 1e10;
+  const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
+  for (int i = 0; i < armor_num_; i++) {
+    const auto & xyza = xyza_list[i];
+    Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
+    auto angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
+                       std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
+    if (std::abs(angle_error) < std::abs(min_angle_error)) {
+      id = i;
+      min_angle_error = angle_error;
     }
   }
 
@@ -292,7 +252,7 @@ void Target::update(const Armor & armor)
   last_id = id;
   update_count_++;
 
-  update_ypda(obs_armor, id);
+  update_ypda(armor, id);
 }
 
 void Target::update_ypda(const Armor & armor, int id)
