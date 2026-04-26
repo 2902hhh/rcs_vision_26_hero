@@ -44,6 +44,8 @@ Target::Target(
     init_l = -0.10;
     init_h = 0.10;
     init_angle = ypr[0] + 2.0 * CV_PI / 3.0;
+    // x[4] 取最低板高度：首帧映射到 id=1（中间板），减去 0.10 得到最低板 z
+    center_z -= 0.10;
   }
   Eigen::VectorXd x0{{center_x, 0, center_y, 0, center_z, 0, init_angle, 0, r, init_l, init_h}};
   Eigen::MatrixXd P0 = P0_dig.asDiagonal();
@@ -228,10 +230,11 @@ void Target::update(const Armor & armor)
   int id = 0;
 
   if (name == ArmorName::outpost) {
-    constexpr double Z_OFFSETS[3] = {-0.10, 0.0, 0.10};
+    // 真实高度偏移（仅用于识别，模型无高度差）
+    // x[4] = 最低板 z，id=0 偏移0，id=1 高 0.10，id=2 高 0.20
+    constexpr double Z_OFFSETS[3] = {0.0, 0.10, 0.20};
     double min_z_error = 1e10;
 
-    // 前哨站高度匹配：硬编码 z-offsets
     for (int i = 0; i < 3; i++) {
       double predicted_z = ekf_.x[4] + Z_OFFSETS[i];
       double z_error = std::abs(armor.xyz_in_world[2] - predicted_z);
@@ -411,10 +414,9 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
 
-  // 前哨站：z-offsets 硬编码
+  // 前哨站：模型无高度差，所有板子都在最低板高度
   if (name == ArmorName::outpost) {
-    constexpr double Z_OFFSETS[3] = {-0.10, 0.0, 0.10};
-    armor_z = x[4] + Z_OFFSETS[id];
+    armor_z = x[4];
   }
 
   return {armor_x, armor_y, armor_z};
