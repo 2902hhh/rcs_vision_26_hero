@@ -367,6 +367,21 @@ std::vector<Eigen::Vector4d> Target::armor_xyza_list() const
   return _armor_xyza_list;
 }
 
+std::vector<Eigen::Vector4d> Target::aim_armor_xyza_list() const
+{
+  auto xyza_list = armor_xyza_list();
+  if (name != ArmorName::outpost || lowest_plate_id_ < 0 || armor_num_ != 3) return xyza_list;
+
+  constexpr double OUTPOST_LAYER_GAP = 0.10;
+  for (int i = 0; i < armor_num_; i++) {
+    // 观测阶段已把高度压平到最低板，这里仅在瞄准阶段按角度顺序恢复层高。
+    int layer = (i - lowest_plate_id_ + armor_num_) % armor_num_;
+    xyza_list[i][2] += OUTPOST_LAYER_GAP * layer;
+  }
+
+  return xyza_list;
+}
+
 bool Target::diverged() const
 {
   auto r_ok = ekf_.x[8] > 0.05 && ekf_.x[8] < 0.9;

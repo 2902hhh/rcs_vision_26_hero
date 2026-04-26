@@ -282,7 +282,7 @@ io::Command Aimer::aim(
 AimPoint Aimer::choose_aim_point(const Target & target)
 {
   Eigen::VectorXd ekf_x = target.ekf_x();
-  std::vector<Eigen::Vector4d> armor_xyza_list = target.armor_xyza_list();
+  std::vector<Eigen::Vector4d> armor_xyza_list = target.aim_armor_xyza_list();
   auto armor_num = armor_xyza_list.size();
 
   // 兜底保护：预瞄逻辑至少需要两块装甲板
@@ -292,13 +292,8 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     if (armor_num == 1) return {true, armor_xyza_list[0]};
     return {false, Eigen::Vector4d::Zero()};
   }
-
-
-
-
-
   // 如果装甲板未发生过跳变，则只有当前装甲板的位置已知
-  if (!target.jumped) {
+  if (target.name != ArmorName::outpost && !target.jumped) {
     aim_preview_ = false;
     spin_mode_ = false;
     return {true, armor_xyza_list[0]};
@@ -386,14 +381,24 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   // WATCH("outpost_static_count", outpost_transition_count);
   // WATCH("spin_mode", spin_mode_ ? 1 : 0);
 
-    WATCH("rad_effective", effective_rotate_speed);
+  WATCH("rad_effective", effective_rotate_speed);
+
+  int outpost_lowest_id = -1;
+  if (target.name == ArmorName::outpost) {
+    outpost_lowest_id = target.lowest_plate_id();
+    if (outpost_lowest_id < 0 || outpost_lowest_id >= armor_num) {
+      return {false, armor_xyza_list[0]};
+    }
+
+    if (!spin_mode_) {
+      aim_preview_ = false;
+      return {true, armor_xyza_list[outpost_lowest_id]};
+    }
+  }
+
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
   if (!spin_mode_) {
     aim_preview_ = false;
-    // 前哨站静止时锁定最低板
-    if (target.name == ArmorName::outpost && target.lowest_plate_id() >= 0) {
-      return {true, armor_xyza_list[target.lowest_plate_id()]};
-    }
     // 选择在可射击范围内的装甲板
     std::vector<int> id_list;
     for (int i = 0; i < armor_num; i++) {
@@ -463,14 +468,15 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   } else if (spin_strategy_ == SpinStrategy::coming_leaving) {
     use_preview = false;
   } else if (spin_strategy_ == SpinStrategy::shoot_middle) {
-    // 强制使用 shoot_middle 模式
-    use_shoot_middle = true;
+    // 前哨站只打最低板，不能瞄车体中心
+    use_shoot_middle = target.name != ArmorName::outpost;
+    use_preview = target.name == ArmorName::outpost;
   } else {
     // 自适应模式：根据条件自动选择
     double distance_m = car_middle.norm();  // 单位：米
 
     // 优先判断是否应该使用 shoot_middle
-    if (should_use_shoot_middle(rotate_speed_rpm, distance_m)) {
+    if (target.name != ArmorName::outpost && should_use_shoot_middle(rotate_speed_rpm, distance_m)) {
       use_shoot_middle = true;
     } else {
       // 原有逻辑：根据角度判断
@@ -493,6 +499,19 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
   if (use_preview) {
     aim_preview_ = true;
+
+    if (target.name == ArmorName::outpost) {
+      double height = armor_xyza_list[outpost_lowest_id][2];
+      double radius = ekf_x[8];
+      double rotate_angle = effective_rotate_speed > 0 ?
+        (CV_PI - track_face_angle) : (CV_PI + track_face_angle);
+      Eigen::Vector2d aim_point2d = calculate_rotate_point2d(car_middle, radius, rotate_angle);
+
+      WATCH("aim_preview", 1);
+      WATCH("track_face_angle_deg", track_face_angle * 57.3);
+
+      return {true, Eigen::Vector4d(aim_point2d.x(), aim_point2d.y(), height, 0)};
+    }
 
     // 确定左右装甲板
     Eigen::Vector4d left_point, right_point;
@@ -529,18 +548,14 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     if (target.name == ArmorName::outpost) {
       coming_angle = 70 / 57.3;
       leaving_angle = 30 / 57.3;
-    }
-
-    // 前哨站：只对最低板做 coming/leaving 判断
-    if (target.name == ArmorName::outpost && target.lowest_plate_id() >= 0) {
-      int lid = target.lowest_plate_id();
-      if (std::abs(delta_angle_list[lid]) <= coming_angle) {
-        if ((effective_rotate_speed > 0 && delta_angle_list[lid] < leaving_angle) ||
-            (effective_rotate_speed < 0 && delta_angle_list[lid] > -leaving_angle)) {
-          return {true, armor_xyza_list[lid]};
+      if (std::abs(delta_angle_list[outpost_lowest_id]) <= coming_angle) {
+        if ((effective_rotate_speed > 0 && delta_angle_list[outpost_lowest_id] < leaving_angle) ||
+            (effective_rotate_speed < 0 &&
+             delta_angle_list[outpost_lowest_id] > -leaving_angle)) {
+          return {true, armor_xyza_list[outpost_lowest_id]};
         }
       }
-      return {false, armor_xyza_list[lid]};
+      return {false, armor_xyza_list[outpost_lowest_id]};
     }
 
     for (int i = 0; i < armor_num; i++) {

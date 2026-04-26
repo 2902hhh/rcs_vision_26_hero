@@ -158,8 +158,8 @@ int main(int argc, char * argv[])
             auto target = targets.front();
             
             // 获取目标所有装甲板的预测位置 (世界坐标系)
-            // 前哨站的 armor_xyza_list() 已包含正确的高度偏移
-            std::vector<Eigen::Vector4d> predicted_armors = target.armor_xyza_list();
+            // 前哨站的 aim_armor_xyza_list() 会在瞄准/显示阶段恢复层高
+            std::vector<Eigen::Vector4d> predicted_armors = target.aim_armor_xyza_list();
             
             for (const auto & xyza : predicted_armors) {
                 // 关键步骤：重投影 (Reprojection)
