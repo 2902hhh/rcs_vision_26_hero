@@ -228,6 +228,7 @@ void Target::predict(double dt)
 void Target::update(const Armor & armor)
 {
   int id = 0;
+  Armor obs_armor = armor;  // 前哨站会压平高度后使用此副本
 
   if (name == ArmorName::outpost) {
     // 真实高度偏移（仅用于识别，模型无高度差）
@@ -247,13 +248,10 @@ void Target::update(const Armor & armor)
     tools::logger()->debug(
       "[Outpost] match: id={}, z_err={:.4f}, x[4]={:.3f}", id, min_z_error, ekf_.x[4]);
 
-    // 只对最低板 (id=0) 做 EKF 更新，非目标板跳过
-    if (id != 0) {
-      tools::logger()->debug("[Outpost] skip non-target plate: id={}", id);
-      last_id = id;
-      update_count_++;
-      return;
-    }
+    // 压平高度差：减去已知偏移，等效为最低板高度后送入 EKF
+    obs_armor.xyz_in_world[2] -= Z_OFFSETS[id];
+    Eigen::VectorXd flat_ypd = tools::xyz2ypd(obs_armor.xyz_in_world);
+    obs_armor.ypd_in_world = flat_ypd;
   } else {
     auto min_angle_error = 1e10;
     const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
@@ -282,7 +280,7 @@ void Target::update(const Armor & armor)
   last_id = id;
   update_count_++;
 
-  update_ypda(armor, id);
+  update_ypda(obs_armor, id);
 }
 
 void Target::update_ypda(const Armor & armor, int id)
