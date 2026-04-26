@@ -293,11 +293,6 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     return {false, Eigen::Vector4d::Zero()};
   }
 
-  // === 前哨站锁定策略：始终瞄准最低板 (id=0) ===
-  if (target.name == ArmorName::outpost) {
-    return {true, armor_xyza_list[0]};
-  }
-
 
 
 
@@ -507,7 +502,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
 
     // 确定高度（根据旋转方向）
     double height = effective_rotate_speed > 0 ? left_point[2] : right_point[2];
-    double radius = (ekf_x[8] + ekf_x[9]) / 2; // 半径取均值
+    double radius = (target.name == ArmorName::outpost) ? ekf_x[8] : (ekf_x[8] + ekf_x[9]) / 2;
 
     // ========== 核心：计算预瞄点位置 ==========
     // 顺时针：CV_PI - track_face_angle
