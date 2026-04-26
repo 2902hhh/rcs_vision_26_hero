@@ -172,7 +172,7 @@ void Target::predict(double dt)
   double v1, v2;
   if (name == ArmorName::outpost) {
     v1 = 1e-3;   // 前哨站加速度方差
-    v2 = 100;  // 前哨站角加速度方差
+    v2 = 5;  // 前哨站角加速度方差
   } else {
     v1 = 10;  // 加速度方差
     v2 = 400;  // 角加速度方差
@@ -192,8 +192,8 @@ void Target::predict(double dt)
     {     0,      0,      0,      0,      0,      0, a * v2, b * v2, 0, 0, 0},
     {     0,      0,      0,      0,      0,      0, b * v2, c * v2,    0,    0,    0},
     {     0,      0,      0,      0,      0,      0,      0,      0, 1e-4,    0,    0},
-    {     0,      0,      0,      0,      0,      0,      0,      0,    0, 1e-4,    0},
-    {     0,      0,      0,      0,      0,      0,      0,      0,    0,    0, 1e-4}
+    {     0,      0,      0,      0,      0,      0,      0,      0,    0, 1e-8,    0},
+    {     0,      0,      0,      0,      0,      0,      0,      0,    0,    0, 1e-8}
   };
   // clang-format on
 
@@ -293,7 +293,7 @@ void Target::update(const Armor & armor)
   if (name == ArmorName::outpost) {
     constexpr double OUTPOST_DZ_TARGET_L = -0.10;
     constexpr double OUTPOST_DZ_TARGET_R =  0.10;
-    constexpr double OUTPOST_DZ_SLEW     =  0.003;
+    constexpr double OUTPOST_DZ_SLEW     =  0.002;
     constexpr double OUTPOST_DZ_L_MIN    = -0.12;
     constexpr double OUTPOST_DZ_L_MAX    = -0.07;
     constexpr double OUTPOST_DZ_R_MIN    =  0.07;
@@ -320,7 +320,7 @@ void Target::update_ypda(const Armor & armor, int id)
       double r_yaw = 0.015;
       double r_pitch = 1e-3;
       double r_dist = 1e-1;
-      double r_angle = 0.1;  // 固定角度噪声，替代自适应
+      double r_angle = 0.05;  // 固定角度噪声，替代自适应
 
       Eigen::VectorXd R_dig{{r_yaw, r_pitch, r_dist, r_angle}};
       R = R_dig.asDiagonal();
