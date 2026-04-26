@@ -210,12 +210,15 @@ void Target::predict(double dt)
   if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
-  // 前哨站半径锁定 + z-offsets 硬编码（固定机械结构，不允许 EKF 估计）
+  // 前哨站锁定（固定结构，不移动）
   if (this->name == ArmorName::outpost) {
     this->ekf_.x[8] = 0.2765;
     this->ekf_.P(8, 8) = 1e-10;
-    this->ekf_.x[5] = 0.0;
-    // z-offsets 硬编码，不允许 EKF 估计
+    // 速度归零：前哨站不移动
+    this->ekf_.x[1] = 0.0;  // vx
+    this->ekf_.x[3] = 0.0;  // vy
+    this->ekf_.x[5] = 0.0;  // vz
+    // z-offsets 硬编码
     this->ekf_.x[9] = -0.10;
     this->ekf_.x[10] = 0.10;
     this->ekf_.P(9, 9) = 1e-10;
