@@ -18,6 +18,7 @@ struct AimPoint
 {
   bool valid;
   Eigen::Vector4d xyza;
+  bool shootable = true;
 };
 
 class Aimer

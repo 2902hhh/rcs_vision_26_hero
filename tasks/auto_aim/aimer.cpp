@@ -387,12 +387,13 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   if (target.name == ArmorName::outpost) {
     outpost_lowest_id = target.lowest_plate_id();
     if (outpost_lowest_id < 0 || outpost_lowest_id >= armor_num) {
-      return {false, armor_xyza_list[0]};
+      int track_id = std::clamp(target.last_id, 0, armor_num - 1);
+      return {true, armor_xyza_list[track_id], false};
     }
 
     if (!spin_mode_) {
       aim_preview_ = false;
-      return {true, armor_xyza_list[outpost_lowest_id]};
+      return {true, armor_xyza_list[outpost_lowest_id], true};
     }
   }
 
@@ -510,7 +511,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       WATCH("aim_preview", 1);
       WATCH("track_face_angle_deg", track_face_angle * 57.3);
 
-      return {true, Eigen::Vector4d(aim_point2d.x(), aim_point2d.y(), height, 0)};
+      return {true, Eigen::Vector4d(aim_point2d.x(), aim_point2d.y(), height, 0), true};
     }
 
     // 确定左右装甲板
@@ -552,10 +553,10 @@ AimPoint Aimer::choose_aim_point(const Target & target)
         if ((effective_rotate_speed > 0 && delta_angle_list[outpost_lowest_id] < leaving_angle) ||
             (effective_rotate_speed < 0 &&
              delta_angle_list[outpost_lowest_id] > -leaving_angle)) {
-          return {true, armor_xyza_list[outpost_lowest_id]};
+          return {true, armor_xyza_list[outpost_lowest_id], true};
         }
       }
-      return {false, armor_xyza_list[outpost_lowest_id]};
+      return {true, armor_xyza_list[outpost_lowest_id], false};
     }
 
     for (int i = 0; i < armor_num; i++) {
