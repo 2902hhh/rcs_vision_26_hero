@@ -192,8 +192,8 @@ void Target::predict(double dt)
     {     0,      0,      0,      0,      0,      0, a * v2, b * v2, 0, 0, 0},
     {     0,      0,      0,      0,      0,      0, b * v2, c * v2,    0,    0,    0},
     {     0,      0,      0,      0,      0,      0,      0,      0, 1e-4,    0,    0},
-    {     0,      0,      0,      0,      0,      0,      0,      0,    0, 1e-8,    0},
-    {     0,      0,      0,      0,      0,      0,      0,      0,    0,    0, 1e-8}
+    {     0,      0,      0,      0,      0,      0,      0,      0,    0,    0,    0},
+    {     0,      0,      0,      0,      0,      0,      0,      0,    0,    0,    0}
   };
   // clang-format on
 
@@ -208,11 +208,16 @@ void Target::predict(double dt)
   if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
     this->ekf_.x[7] = this->ekf_.x[7] > 0 ? 2.51 : -2.51;
 
-  // 前哨站半径锁定（固定机械结构，不允许 EKF 估计）
+  // 前哨站半径锁定 + z-offsets 硬编码（固定机械结构，不允许 EKF 估计）
   if (this->name == ArmorName::outpost) {
     this->ekf_.x[8] = 0.2765;
     this->ekf_.P(8, 8) = 1e-10;
     this->ekf_.x[5] = 0.0;
+    // z-offsets 硬编码，不允许 EKF 估计
+    this->ekf_.x[9] = -0.10;
+    this->ekf_.x[10] = 0.10;
+    this->ekf_.P(9, 9) = 1e-10;
+    this->ekf_.P(10, 10) = 1e-10;
   }
 
   ekf_.predict(F, Q, f);
@@ -223,14 +228,12 @@ void Target::update(const Armor & armor)
   int id = 0;
 
   if (name == ArmorName::outpost) {
-    constexpr double OUTPOST_Z_MATCH_GATE = 0.12;
-    constexpr int OUTPOST_REJECT_REANCHOR_COUNT = 5;
+    constexpr double Z_OFFSETS[3] = {-0.10, 0.0, 0.10};
     double min_z_error = 1e10;
 
-    // 前哨站高度匹配：id=0 用 x[9], id=1 为基准(0), id=2 用 x[10]
-    double z_offsets[3] = {ekf_.x[9], 0.0, ekf_.x[10]};
+    // 前哨站高度匹配：硬编码 z-offsets
     for (int i = 0; i < 3; i++) {
-      double predicted_z = ekf_.x[4] + z_offsets[i];
+      double predicted_z = ekf_.x[4] + Z_OFFSETS[i];
       double z_error = std::abs(armor.xyz_in_world[2] - predicted_z);
       if (z_error < min_z_error) {
         min_z_error = z_error;
@@ -238,27 +241,16 @@ void Target::update(const Armor & armor)
       }
     }
 
-    // z 门控：超门限不再硬拒绝，改为软更新，连续超限后重锚高度
-    if (min_z_error > OUTPOST_Z_MATCH_GATE) {
-      outpost_reject_count_++;
-      if (outpost_reject_count_ >= OUTPOST_REJECT_REANCHOR_COUNT) {
-        ekf_.x[4] = armor.xyz_in_world[2] - z_offsets[id];
-        ekf_.x[5] = 0.0;
-        outpost_reject_count_ = 0;
-        tools::logger()->warn(
-          "[Outpost] z reanchor: id={}, z_obs={:.3f}, z_anchor={:.3f}", id,
-          armor.xyz_in_world[2], ekf_.x[4]);
-      }
-      tools::logger()->warn(
-        "[Outpost] z soft-reject: id={}, z_err={:.4f}, z_obs={:.3f}, z_pred={:.3f}, cnt={}", id,
-        min_z_error, armor.xyz_in_world[2], ekf_.x[4] + z_offsets[id], outpost_reject_count_);
-    } else {
-      outpost_reject_count_ = 0;
-    }
-
     tools::logger()->debug(
-      "[Outpost] match: id={}, z_err={:.4f}, x[9]={:.4f}, x[10]={:.4f}, x[4]={:.3f}", id,
-      min_z_error, ekf_.x[9], ekf_.x[10], ekf_.x[4]);
+      "[Outpost] match: id={}, z_err={:.4f}, x[4]={:.3f}", id, min_z_error, ekf_.x[4]);
+
+    // 只对最低板 (id=0) 做 EKF 更新，非目标板跳过
+    if (id != 0) {
+      tools::logger()->debug("[Outpost] skip non-target plate: id={}", id);
+      last_id = id;
+      update_count_++;
+      return;
+    }
   } else {
     auto min_angle_error = 1e10;
     const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
@@ -288,23 +280,6 @@ void Target::update(const Armor & armor)
   update_count_++;
 
   update_ypda(armor, id);
-
-  // 前哨站：慢回拉 + 硬限幅，不做观测高差写入
-  if (name == ArmorName::outpost) {
-    constexpr double OUTPOST_DZ_TARGET_L = -0.10;
-    constexpr double OUTPOST_DZ_TARGET_R =  0.10;
-    constexpr double OUTPOST_DZ_SLEW     =  0.002;
-    constexpr double OUTPOST_DZ_L_MIN    = -0.12;
-    constexpr double OUTPOST_DZ_L_MAX    = -0.07;
-    constexpr double OUTPOST_DZ_R_MIN    =  0.07;
-    constexpr double OUTPOST_DZ_R_MAX    =  0.12;
-
-    ekf_.x[9]  += std::clamp(OUTPOST_DZ_TARGET_L - ekf_.x[9],  -OUTPOST_DZ_SLEW, OUTPOST_DZ_SLEW);
-    ekf_.x[10] += std::clamp(OUTPOST_DZ_TARGET_R - ekf_.x[10], -OUTPOST_DZ_SLEW, OUTPOST_DZ_SLEW);
-
-    ekf_.x[9]  = std::clamp(ekf_.x[9],  OUTPOST_DZ_L_MIN, OUTPOST_DZ_L_MAX);
-    ekf_.x[10] = std::clamp(ekf_.x[10], OUTPOST_DZ_R_MIN, OUTPOST_DZ_R_MAX);
-  }
 }
 
 void Target::update_ypda(const Armor & armor, int id)
@@ -436,10 +411,10 @@ Eigen::Vector3d Target::h_armor_xyz(const Eigen::VectorXd & x, int id) const
   auto armor_y = x[2] - r * std::sin(angle);
   auto armor_z = (use_l_h) ? x[4] + x[10] : x[4];
 
-  // 前哨站：高差从状态量 x[9]/x[10] 读取（在线估计）
+  // 前哨站：z-offsets 硬编码
   if (name == ArmorName::outpost) {
-    double z_offsets[3] = {x[9], 0.0, x[10]};
-    armor_z = x[4] + z_offsets[id];
+    constexpr double Z_OFFSETS[3] = {-0.10, 0.0, 0.10};
+    armor_z = x[4] + Z_OFFSETS[id];
   }
 
   return {armor_x, armor_y, armor_z};
@@ -461,19 +436,14 @@ Eigen::MatrixXd Target::h_jacobian(const Eigen::VectorXd & x, int id) const
 
   auto dz_dh = (use_l_h) ? 1.0 : 0.0;
 
-  // 前哨站：x[9]=id=0高差, x[10]=id=2高差
-  double dz_dl_outpost = 0.0;
-  double dz_dh_outpost = 0.0;
-  if (name == ArmorName::outpost) {
-    if (id == 0) dz_dl_outpost = 1.0;
-    if (id == 2) dz_dh_outpost = 1.0;
-  }
+  // 前哨站：z-offsets 已硬编码，不对 x[9]/x[10] 求偏导
+  // dz_dl_outpost 和 dz_dh_outpost 保持为 0
 
   // clang-format off
   Eigen::MatrixXd H_armor_xyza{
     {1, 0, 0, 0, 0, 0, dx_da, 0, dx_dr, dx_dl,     0},
     {0, 0, 1, 0, 0, 0, dy_da, 0, dy_dr, dy_dl,     0},
-    {0, 0, 0, 0, 1, 0,     0, 0,     0, dz_dl_outpost, (name == ArmorName::outpost) ? dz_dh_outpost : dz_dh},
+    {0, 0, 0, 0, 1, 0,     0, 0,     0, 0, (name == ArmorName::outpost) ? 0 : dz_dh},
     {0, 0, 0, 0, 0, 0,     1, 0,     0,     0,     0}
   };
   // clang-format on

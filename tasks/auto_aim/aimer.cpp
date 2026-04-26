@@ -293,37 +293,10 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     return {false, Eigen::Vector4d::Zero()};
   }
 
-    // === 前哨站锁定策略 ===
-  // if (target.name == ArmorName::outpost) {
-  //     // 策略：永远只瞄准 ID 0 (Layer 0)
-  //     // armor_xyza_list[0] 对应 ID 0
-
-  //     // 1. 还原高度 (仅还原 ID 0)
-  //     // ID 0 通常是基准高度，offset = 0，不需要加
-  //     // 如果你想锁定 ID 1，就 armor_xyza_list[1][2] += 0.102;
-  //     Eigen::Vector4d target_armor = armor_xyza_list[0];
-
-  //     // 2. 计算偏角
-  //     double center_yaw = std::atan2(ekf_x[2], ekf_x[0]);
-  //     double delta = tools::limit_rad(target_armor[3] - center_yaw);
-
-  //     // 3. 判断是否在攻击范围内
-  //     // coming_angle / leaving_angle 决定了开火窗口
-  //     // 比如只在正对枪口 +/- 15度范围内开火
-  //     // 注意：这里我们返回 {true/false, 坐标}
-  //     // true 表示”建议开火/跟踪”，false 表示”不可见/不建议”
-
-  //     // 如果偏角太大，虽然返回坐标让云台跟着转，但在 Shooter 里会被拦截不开火
-  //     // 为了让云台提前预瞄（守株待兔），我们应该始终返回 true，让云台指着它
-
-  //     // 但是！如果板子转到背面去了，云台还跟着转会撞限位或者打到立柱。
-  //     // 所以策略是：
-  //     //   - 如果在视野内 (如 +/- 60度)，跟踪。
-  //     //   - 如果转出去了，瞄准一个”预瞄点”（比如进入侧）。
-
-  //     // 简化版：全程跟踪 ID 0
-  //     return {true, target_armor};
-  // }
+  // === 前哨站锁定策略：始终瞄准最低板 (id=0) ===
+  if (target.name == ArmorName::outpost) {
+    return {true, armor_xyza_list[0]};
+  }
 
 
 
