@@ -464,20 +464,22 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   bool use_preview = false;
   bool use_shoot_middle = false;
 
-  if (spin_strategy_ == SpinStrategy::preview) {
+  // 前哨站旋转时强制走预瞄，普通小陀螺仍按 YAML 配置策略选择。
+  if (target.name == ArmorName::outpost) {
+    use_preview = true;
+  } else if (spin_strategy_ == SpinStrategy::preview) {
     use_preview = true;
   } else if (spin_strategy_ == SpinStrategy::coming_leaving) {
     use_preview = false;
   } else if (spin_strategy_ == SpinStrategy::shoot_middle) {
-    // 前哨站只打最低板，不能瞄车体中心
-    use_shoot_middle = target.name != ArmorName::outpost;
-    use_preview = target.name == ArmorName::outpost;
+    // 普通小陀螺可按配置瞄车体中心
+    use_shoot_middle = true;
   } else {
     // 自适应模式：根据条件自动选择
     double distance_m = car_middle.norm();  // 单位：米
 
     // 优先判断是否应该使用 shoot_middle
-    if (target.name != ArmorName::outpost && should_use_shoot_middle(rotate_speed_rpm, distance_m)) {
+    if (should_use_shoot_middle(rotate_speed_rpm, distance_m)) {
       use_shoot_middle = true;
     } else {
       // 原有逻辑：根据角度判断
