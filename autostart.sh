@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Wait for hardware, drivers, and desktop session to become ready.
-sleep 30
+sleep 10
 
 # Absolute paths.
 USER_NAME="rm"
