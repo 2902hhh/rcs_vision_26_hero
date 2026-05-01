@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
 
-# 1. 强制延迟（给系统硬件和网络留出加载时间）
-sleep 5
+# Wait for hardware, drivers, and desktop session to become ready.
+sleep 30
 
-# 2. 绝对路径定义（将 rm 替换为你的实际用户名）
+# Absolute paths.
 USER_NAME="rm"
 PROJECT_DIR="/home/$USER_NAME/Desktop/rcs_vision_26_hero_classic"
 SCREEN_BIN="/usr/bin/screen"
+SESSION_NAME="vision"
+RESTART_DELAY_SEC=10
 
-# 3. 进入目录，失败则退出
-cd "$PROJECT_DIR" || { echo "Directory not found"; exit 1; }
+# Enter project directory.
+cd "$PROJECT_DIR" || { echo "Directory not found: $PROJECT_DIR"; exit 1; }
 
-# 4. 创建日志目录
+# Prepare logs.
 mkdir -p logs
 
-# 5. 启动 Screen 会话
-# 修改点：
-# -S vision: 给会话命名，方便以后用 screen -r vision 进入
-# -L -Logfile: 依然保留日志，但请确保硬盘空间充足
-$SCREEN_BIN \
-    -L \
-    -Logfile "$PROJECT_DIR/logs/$(date "+%Y-%m-%d_%H-%M-%S").screenlog" \
-    -S vision \
-    -d \
-    -m \
-    bash -lc "./build/standard configs/hero.yaml"
+# Clean up previous instances before creating a new screen session.
+killall -9 standard 2>/dev/null || true
+"$SCREEN_BIN" -S "$SESSION_NAME" -X quit 2>/dev/null || true
 
-# 6. 给 systemd 一个确定的反馈
-echo "Vision program started in screen session 'vision'"
+# Start standard in a detached screen session with auto-restart.
+"$SCREEN_BIN" \
+  -L \
+  -Logfile "$PROJECT_DIR/logs/$(date "+%Y-%m-%d_%H-%M-%S").screenlog" \
+  -S "$SESSION_NAME" \
+  -d \
+  -m \
+  bash -lc "while true; do ./build/standard configs/hero.yaml; echo 'standard exited, restart after ${RESTART_DELAY_SEC}s'; sleep ${RESTART_DELAY_SEC}; done"
+
+# Give systemd a deterministic result.
+echo "Vision program started in screen session '$SESSION_NAME' with auto-restart enabled"
