@@ -397,8 +397,16 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     }
 
     aim_preview_ = false;
-    double height = armor_xyza_list[outpost_lowest_id][2];
-    return {true, Eigen::Vector4d(ekf_x[0], ekf_x[2], height, 0), true};
+    Eigen::Vector3d lowest_xyz = armor_xyza_list[outpost_lowest_id].head(3);
+    double lowest_dist = std::hypot(lowest_xyz.x(), lowest_xyz.y());
+    double center_dist = std::hypot(ekf_x[0], ekf_x[2]);
+    double aim_z = lowest_xyz.z();
+    if (lowest_dist > 1e-6) {
+      aim_z = lowest_xyz.z() / lowest_dist * center_dist;
+    }
+    WATCH("outpost_center_aim_z", aim_z);
+    WATCH("outpost_lowest_z", lowest_xyz.z());
+    return {true, Eigen::Vector4d(ekf_x[0], ekf_x[2], aim_z, 0), true};
   }
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
