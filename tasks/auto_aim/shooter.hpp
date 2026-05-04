@@ -44,7 +44,17 @@ private:
   std::deque<double> frame_time_queue_;   // 帧时间队列
   static constexpr int queue_max_size_ = 10;
 
+  // ========== 新增：前哨站精确开火 ==========
+  bool outpost_shot_this_cycle_ = false;  // 当前扇区是否已开火
+  int outpost_last_sector_ = -1;          // 最低板上一帧所在扇区
+
   // ========== 新增：精确发射方法 ==========
+  // 前哨站精确开火判断
+  bool judging_outpost_shoot(
+      const Eigen::Vector4d& lowest_armor_xyza,
+      const Eigen::Vector2d& car_middle,
+      double radius,
+      double rotate_speed);
   // 寻找旋转圆与Y轴交点
   std::vector<Eigen::Vector2d> find_intersections(
       const Eigen::Vector2d& center, double radius) const;

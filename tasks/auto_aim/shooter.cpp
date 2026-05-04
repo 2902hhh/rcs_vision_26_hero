@@ -236,8 +236,43 @@ bool Shooter::shoot(
 
   // 弹道有效: Aimer 解算成功
   bool is_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable;
-  // 前哨站直接瞄最低板，弹道迭代已补偿 fly_time，常规 yaw/pitch 检查即可决定开火
+
+  // ========== 前哨站精确开火时机 ==========
+  // 预瞄模式下：最低板在旋转圆上匀速转动，计算其到达"枪口射线"的最佳时机
   bool is_outpost_armor_near_aim = true;
+  if (is_outpost) {
+    is_outpost_armor_near_aim = false;
+    int lowest_id = target.lowest_plate_id();
+    auto armor_xyza_list = target.armor_xyza_list();
+    bool is_lowest_visible = target.lowest_plate_visible_this_frame();
+
+    if (lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size()) && is_valid) {
+      // 扇区检测：每 120° 一个扇区，每扇区最多开一枪
+      Eigen::Vector2d lowest_2d(armor_xyza_list[lowest_id][0], armor_xyza_list[lowest_id][1]);
+      double armor_angle = std::atan2(lowest_2d.y() - ekf_x[2], lowest_2d.x() - ekf_x[0]);
+      int sector = static_cast<int>(std::floor(tools::limit_rad(armor_angle) / (2 * CV_PI / 3))) + 1;
+      if (sector != outpost_last_sector_) {
+        outpost_shot_this_cycle_ = false;
+        outpost_last_sector_ = sector;
+      }
+
+      // 计算最低板到枪口射线的等待时间
+      Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
+      double radius = std::abs(ekf_x[8]);
+      bool can_shoot = judging_outpost_shoot(armor_xyza_list[lowest_id], car_middle, radius, ekf_x[7]);
+
+      if (can_shoot && !outpost_shot_this_cycle_) {
+        is_outpost_armor_near_aim = true;
+        outpost_shot_this_cycle_ = true;
+      }
+
+      WATCH("outpost_lowest_visible", is_lowest_visible ? 1 : 0);
+      WATCH("outpost_can_shoot", can_shoot ? 1 : 0);
+      WATCH("outpost_sector", sector);
+      WATCH("outpost_shot_this_cycle", outpost_shot_this_cycle_ ? 1 : 0);
+    }
+    WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
+  }
 
   // 6. 调试日志 (可选，防止刷屏可加计数器)
   static int debug_cnt = 0;
@@ -356,6 +391,42 @@ bool Shooter::judging_precision_shoot(
   }
 
   return true;  // 允许发射
+}
+
+// ========== 前哨站精确开火判断 ==========
+bool Shooter::judging_outpost_shoot(
+    const Eigen::Vector4d& lowest_armor_xyza,
+    const Eigen::Vector2d& car_middle,
+    double radius,
+    double rotate_speed)
+{
+  double abs_omega = std::abs(rotate_speed);
+  if (abs_omega < 0.1) return true;  // 静止时始终允许开火
+
+  // 最低板当前位置
+  Eigen::Vector2d armor_2d(lowest_armor_xyza[0], lowest_armor_xyza[1]);
+
+  // 找旋转圆与Y轴（枪口射线，x=0）的交点——即最低板的"最佳开火位置"
+  auto intersections = find_intersections(car_middle, radius);
+  if (intersections.size() < 1) return false;
+
+  // 取 y 值更小的交点（枪口前方，更近）
+  Eigen::Vector2d near_intersection = intersections[0];
+  if (intersections.size() == 2 && intersections[1].y() < near_intersection.y()) {
+    near_intersection = intersections[1];
+  }
+
+  // 计算最低板当前位置到最佳位置的角度差
+  double included_angle = angle_abc(armor_2d, car_middle, near_intersection);
+
+  // 计算最低板到达最佳位置的等待时间
+  double wait_time = included_angle / abs_omega;
+
+  WATCH("outpost_wait_time_ms", wait_time * 1000);
+
+  // 等待时间在一帧以内 → 板即将到达最佳位置 → 立即开火
+  double avg_frame_time = get_frame_time_average();
+  return wait_time >= 0 && wait_time < avg_frame_time * 1.5;
 }
 
 }  // namespace auto_aim

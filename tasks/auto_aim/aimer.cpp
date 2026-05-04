@@ -398,8 +398,14 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       return {true, armor_xyza_list[track_id], false};
     }
 
-    // 静态和动态模式都直接瞄最低板，弹道迭代自动补偿 fly_time 提前量
-    aim_preview_ = false;
+    // 静态模式直接瞄最低板
+    if (!spin_mode_) {
+      aim_preview_ = false;
+      return {true, armor_xyza_list[outpost_lowest_id], true};
+    }
+
+    // 动态模式：预瞄最低板 fly_time 后的位置，弹道迭代自动推进角度
+    aim_preview_ = true;
     return {true, armor_xyza_list[outpost_lowest_id], true};
   }
 
