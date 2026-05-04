@@ -258,8 +258,17 @@ bool Shooter::shoot(
       Eigen::Vector3d aim_ypd = tools::xyz2ypd(aim_xyz);
       double outpost_yaw_error = std::abs(tools::limit_rad(lowest_armor_ypd[0] - aim_ypd[0]));
       double outpost_pitch_error = std::abs(tools::limit_rad(lowest_armor_ypd[1] - aim_ypd[1]));
-      is_outpost_armor_near_aim = outpost_yaw_error < tolerance;
+      double outpost_yaw_tolerance = tolerance;
+      if (aimer.debug_aim_point.has_fire_xyza) {
+        double center_dist = std::hypot(aim_xyz.x(), aim_xyz.y());
+        if (center_dist > 1e-6) {
+          double radius_ratio = std::clamp(std::abs(ekf_x[8]) / center_dist, 0.0, 0.95);
+          outpost_yaw_tolerance = std::max(tolerance, std::asin(radius_ratio));
+        }
+      }
+      is_outpost_armor_near_aim = outpost_yaw_error < outpost_yaw_tolerance;
       WATCH("outpost_armor_yaw_diff", outpost_yaw_error * 57.3);
+      WATCH("outpost_yaw_tolerance", outpost_yaw_tolerance * 57.3);
       WATCH("outpost_armor_pitch_diff", outpost_pitch_error * 57.3);
     }
     WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
