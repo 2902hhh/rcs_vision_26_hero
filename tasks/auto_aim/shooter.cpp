@@ -238,13 +238,12 @@ bool Shooter::shoot(
   bool is_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable;
 
   // ========== 前哨站精确开火时机 ==========
-  // 预瞄模式下：最低板在旋转圆上匀速转动，计算其到达"枪口射线"的最佳时机
+  // 枪口指向旋转中心（固定点），利用 fly_time 预测最低板到达枪口射线的时刻
   bool is_outpost_armor_near_aim = true;
   if (is_outpost) {
     is_outpost_armor_near_aim = false;
     int lowest_id = target.lowest_plate_id();
     auto armor_xyza_list = target.armor_xyza_list();
-    bool is_lowest_visible = target.lowest_plate_visible_this_frame();
 
     if (lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size()) && is_valid) {
       // 扇区检测：每 120° 一个扇区，每扇区最多开一枪
@@ -256,18 +255,40 @@ bool Shooter::shoot(
         outpost_last_sector_ = sector;
       }
 
-      // 计算最低板到枪口射线的等待时间
-      Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
-      double radius = std::abs(ekf_x[8]);
-      bool can_shoot = judging_outpost_shoot(armor_xyza_list[lowest_id], car_middle, radius, ekf_x[7]);
+      if (!outpost_shot_this_cycle_) {
+        // 枪口指向中心，计算中心方向角
+        Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
+        double aim_yaw = std::atan2(car_middle.y(), car_middle.x());
 
-      if (can_shoot && !outpost_shot_this_cycle_) {
-        is_outpost_armor_near_aim = true;
-        outpost_shot_this_cycle_ = true;
+        // 最低板当前角度（相对于旋转中心）
+        double plate_angle = std::atan2(lowest_2d.y() - ekf_x[2], lowest_2d.x() - ekf_x[0]);
+
+        // fly_time 后最低板的预测角度
+        double omega = ekf_x[7];
+        double predicted_angle = plate_angle + omega * aimer.debug_aim_point.fly_time;
+
+        // 最低板在 fly_time 后的世界坐标
+        double radius = std::abs(ekf_x[8]);
+        Eigen::Vector2d predicted_pos(
+          ekf_x[0] + radius * std::cos(predicted_angle),
+          ekf_x[2] + radius * std::sin(predicted_angle));
+        double predicted_yaw = std::atan2(predicted_pos.y(), predicted_pos.x());
+
+        // 预测最低板 yaw 与枪口 yaw 的偏差
+        double yaw_diff = std::abs(tools::limit_rad(predicted_yaw - aim_yaw));
+
+        // 偏差在容忍范围内 → 子弹到达时最低板正好在枪口射线上
+        double outpost_yaw_tolerance = std::max(tolerance, std::asin(std::clamp(radius / car_middle.norm(), 0.0, 0.95)));
+        if (yaw_diff < outpost_yaw_tolerance) {
+          is_outpost_armor_near_aim = true;
+          outpost_shot_this_cycle_ = true;
+        }
+
+        WATCH("outpost_fly_time_ms", aimer.debug_aim_point.fly_time * 1000);
+        WATCH("outpost_predicted_yaw_diff_deg", yaw_diff * 57.3);
+        WATCH("outpost_yaw_tolerance_deg", outpost_yaw_tolerance * 57.3);
       }
 
-      WATCH("outpost_lowest_visible", is_lowest_visible ? 1 : 0);
-      WATCH("outpost_can_shoot", can_shoot ? 1 : 0);
       WATCH("outpost_sector", sector);
       WATCH("outpost_shot_this_cycle", outpost_shot_this_cycle_ ? 1 : 0);
     }
@@ -391,42 +412,6 @@ bool Shooter::judging_precision_shoot(
   }
 
   return true;  // 允许发射
-}
-
-// ========== 前哨站精确开火判断 ==========
-bool Shooter::judging_outpost_shoot(
-    const Eigen::Vector4d& lowest_armor_xyza,
-    const Eigen::Vector2d& car_middle,
-    double radius,
-    double rotate_speed)
-{
-  double abs_omega = std::abs(rotate_speed);
-  if (abs_omega < 0.1) return true;  // 静止时始终允许开火
-
-  // 最低板当前位置
-  Eigen::Vector2d armor_2d(lowest_armor_xyza[0], lowest_armor_xyza[1]);
-
-  // 找旋转圆与Y轴（枪口射线，x=0）的交点——即最低板的"最佳开火位置"
-  auto intersections = find_intersections(car_middle, radius);
-  if (intersections.size() < 1) return false;
-
-  // 取 y 值更小的交点（枪口前方，更近）
-  Eigen::Vector2d near_intersection = intersections[0];
-  if (intersections.size() == 2 && intersections[1].y() < near_intersection.y()) {
-    near_intersection = intersections[1];
-  }
-
-  // 计算最低板当前位置到最佳位置的角度差
-  double included_angle = angle_abc(armor_2d, car_middle, near_intersection);
-
-  // 计算最低板到达最佳位置的等待时间
-  double wait_time = included_angle / abs_omega;
-
-  WATCH("outpost_wait_time_ms", wait_time * 1000);
-
-  // 等待时间在一帧以内 → 板即将到达最佳位置 → 立即开火
-  double avg_frame_time = get_frame_time_average();
-  return wait_time >= 0 && wait_time < avg_frame_time * 1.5;
 }
 
 }  // namespace auto_aim

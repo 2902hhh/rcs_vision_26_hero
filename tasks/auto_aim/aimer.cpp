@@ -165,6 +165,7 @@ io::Command Aimer::aim(
 
   // 计算最终角度 (单位：弧度)
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
+  debug_aim_point.fly_time = current_traj.fly_time;
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
   double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
 
@@ -404,9 +405,17 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       return {true, armor_xyza_list[outpost_lowest_id], true};
     }
 
-    // 动态模式：预瞄最低板 fly_time 后的位置，弹道迭代自动推进角度
-    aim_preview_ = true;
-    return {true, armor_xyza_list[outpost_lowest_id], true};
+    // 动态模式：枪口指向旋转中心（固定点），Shooter 根据 fly_time 判断开火时机
+    aim_preview_ = false;
+    Eigen::Vector3d lowest_xyz = armor_xyza_list[outpost_lowest_id].head(3);
+    double lowest_dist = std::hypot(lowest_xyz.x(), lowest_xyz.y());
+    double center_dist = std::hypot(ekf_x[0], ekf_x[2]);
+    double aim_z = lowest_xyz.z();
+    if (lowest_dist > 1e-6) {
+      aim_z = lowest_xyz.z() / lowest_dist * center_dist;
+    }
+    Eigen::Vector4d aim_xyza(ekf_x[0], ekf_x[2], aim_z, 0);
+    return {true, aim_xyza, true};
   }
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========

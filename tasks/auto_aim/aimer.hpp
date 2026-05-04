@@ -21,6 +21,7 @@ struct AimPoint
   bool shootable = true;
   Eigen::Vector4d fire_xyza = Eigen::Vector4d::Zero();
   bool has_fire_xyza = false;
+  double fly_time = 0;  // 子弹飞行时间（秒），供 Shooter 开火时机判断
 };
 
 class Aimer
