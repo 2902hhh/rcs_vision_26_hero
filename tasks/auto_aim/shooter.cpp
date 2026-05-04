@@ -243,6 +243,9 @@ bool Shooter::shoot(
     auto armor_xyza_list = target.aim_armor_xyza_list();
     bool is_lowest_armor_visible = target.lowest_plate_visible_this_frame();
     WATCH("outpost_lowest_visible", is_lowest_armor_visible ? 1 : 0);
+    WATCH("outpost_lowest_id", lowest_id);
+    WATCH("outpost_has_fire_xyza", aimer.debug_aim_point.has_fire_xyza ? 1 : 0);
+    WATCH("outpost_aim_valid", aimer.debug_aim_point.valid ? 1 : 0);
     if (
       is_lowest_armor_visible && lowest_id >= 0 &&
       lowest_id < static_cast<int>(armor_xyza_list.size()) && aimer.debug_aim_point.valid) {
@@ -255,12 +258,11 @@ bool Shooter::shoot(
       Eigen::Vector3d aim_ypd = tools::xyz2ypd(aim_xyz);
       double outpost_yaw_error = std::abs(tools::limit_rad(lowest_armor_ypd[0] - aim_ypd[0]));
       double outpost_pitch_error = std::abs(tools::limit_rad(lowest_armor_ypd[1] - aim_ypd[1]));
-      is_outpost_armor_near_aim =
-        outpost_yaw_error < tolerance && outpost_pitch_error < tolerance;
+      is_outpost_armor_near_aim = outpost_yaw_error < tolerance;
       WATCH("outpost_armor_yaw_diff", outpost_yaw_error * 57.3);
       WATCH("outpost_armor_pitch_diff", outpost_pitch_error * 57.3);
-      WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
     }
+    WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
   }
 
   // 6. 调试日志 (可选，防止刷屏可加计数器)
