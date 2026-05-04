@@ -371,6 +371,12 @@ Eigen::VectorXd Target::ekf_x() const { return ekf_.x; }
 
 const tools::ExtendedKalmanFilter & Target::ekf() const { return ekf_; }
 
+void Target::set_outpost_angular_velocity(double angular_velocity)
+{
+  if (name != ArmorName::outpost) return;
+  ekf_.x[7] = angular_velocity;
+}
+
 std::vector<Eigen::Vector4d> Target::armor_xyza_list() const
 {
   std::vector<Eigen::Vector4d> _armor_xyza_list;

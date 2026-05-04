@@ -76,6 +76,13 @@ io::Command Aimer::aim(
   double observed_rotate_speed = target.ekf_x()[7];
   double effective_rotate_speed =
     use_manual_rotate_speed_ ? manual_rotate_speed_ : observed_rotate_speed;
+  if (target.name == ArmorName::outpost && std::abs(observed_rotate_speed) > 0.15) {
+    constexpr double OUTPOST_SPIN_OMEGA = 2.5;
+    double rotate_sign = (effective_rotate_speed >= 0) ? 1.0 : -1.0;
+    effective_rotate_speed = rotate_sign * OUTPOST_SPIN_OMEGA;
+    target.set_outpost_angular_velocity(effective_rotate_speed);
+    WATCH("outpost_predict_omega", effective_rotate_speed);
+  }
   double delay_time = std::abs(effective_rotate_speed) > decision_speed_ ? high_speed_delay_time_
                                                                          : low_speed_delay_time_;
 

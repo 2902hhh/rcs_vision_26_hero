@@ -37,6 +37,7 @@ public:
   const tools::ExtendedKalmanFilter & ekf() const;
   std::vector<Eigen::Vector4d> armor_xyza_list() const;
   std::vector<Eigen::Vector4d> aim_armor_xyza_list() const;
+  void set_outpost_angular_velocity(double angular_velocity);
 
   bool diverged() const;
 
@@ -48,6 +49,7 @@ public:
   bool lowest_plate_visible_this_frame() const { return lowest_plate_visible_this_frame_; }
   void set_lowest_plate_visible_this_frame(bool visible)
   {
+    if (name != ArmorName::outpost) return;
     lowest_plate_visible_this_frame_ = visible;
   }
 
