@@ -406,7 +406,8 @@ AimPoint Aimer::choose_aim_point(const Target & target)
     }
     WATCH("outpost_center_aim_z", aim_z);
     WATCH("outpost_lowest_z", lowest_xyz.z());
-    return {true, Eigen::Vector4d(ekf_x[0], ekf_x[2], aim_z, 0), true};
+    Eigen::Vector4d aim_xyza(ekf_x[0], ekf_x[2], aim_z, 0);
+    return {true, aim_xyza, true, armor_xyza_list[outpost_lowest_id], true};
   }
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
