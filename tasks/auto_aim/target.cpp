@@ -225,17 +225,23 @@ void Target::update(const Armor & armor)
 {
   int id = 0;
 
-  // 前哨站和普通装甲板统一使用角度匹配（120° 间隔远大于角度噪声，匹配可靠）
-  auto min_angle_error = 1e10;
-  const std::vector<Eigen::Vector4d> & xyza_list = armor_xyza_list();
+  // 前哨站确定最低板后，用恢复层高辅助匹配，避免三块板在扰动下串 id。
+  const bool use_outpost_height =
+    (name == ArmorName::outpost && lowest_plate_id_ >= 0 && armor_num_ == 3);
+  auto xyza_list = use_outpost_height ? aim_armor_xyza_list() : armor_xyza_list();
+  auto min_match_error = 1e10;
   for (int i = 0; i < armor_num_; i++) {
     const auto & xyza = xyza_list[i];
     Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
-    auto angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
+    auto match_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
                        std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
-    if (std::abs(angle_error) < std::abs(min_angle_error)) {
+    if (use_outpost_height) {
+      constexpr double OUTPOST_Z_MATCH_WEIGHT = 8.0;
+      match_error += OUTPOST_Z_MATCH_WEIGHT * std::abs(armor.xyz_in_world[2] - xyza[2]);
+    }
+    if (std::abs(match_error) < std::abs(min_match_error)) {
       id = i;
-      min_angle_error = angle_error;
+      min_match_error = match_error;
     }
   }
 
@@ -372,11 +378,12 @@ std::vector<Eigen::Vector4d> Target::aim_armor_xyza_list() const
   auto xyza_list = armor_xyza_list();
   if (name != ArmorName::outpost || lowest_plate_id_ < 0 || armor_num_ != 3) return xyza_list;
 
-  constexpr double OUTPOST_LAYER_GAP = 0.10;
+  double base_z_avg = id_z_sum_[lowest_plate_id_] / id_z_count_[lowest_plate_id_];
   for (int i = 0; i < armor_num_; i++) {
-    // 观测阶段已把高度压平到最低板，这里仅在瞄准阶段按角度顺序恢复层高。
-    int layer = (i - lowest_plate_id_ + armor_num_) % armor_num_;
-    xyza_list[i][2] += OUTPOST_LAYER_GAP * layer;
+    if (id_z_count_[i] == 0) continue;
+    // 观测阶段已把高度压平到最低板，这里仅在瞄准/匹配阶段恢复实测层高。
+    double z_offset = id_z_sum_[i] / id_z_count_[i] - base_z_avg;
+    xyza_list[i][2] += z_offset;
   }
 
   return xyza_list;
