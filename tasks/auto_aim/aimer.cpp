@@ -395,6 +395,10 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       aim_preview_ = false;
       return {true, armor_xyza_list[outpost_lowest_id], true};
     }
+
+    aim_preview_ = false;
+    double height = armor_xyza_list[outpost_lowest_id][2];
+    return {true, Eigen::Vector4d(ekf_x[0], ekf_x[2], height, 0), true};
   }
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========
@@ -464,10 +468,7 @@ AimPoint Aimer::choose_aim_point(const Target & target)
   bool use_preview = false;
   bool use_shoot_middle = false;
 
-  // 前哨站旋转时强制走预瞄，普通小陀螺仍按 YAML 配置策略选择。
-  if (target.name == ArmorName::outpost) {
-    use_preview = true;
-  } else if (spin_strategy_ == SpinStrategy::preview) {
+  if (spin_strategy_ == SpinStrategy::preview) {
     use_preview = true;
   } else if (spin_strategy_ == SpinStrategy::coming_leaving) {
     use_preview = false;

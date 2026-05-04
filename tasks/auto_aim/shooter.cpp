@@ -65,11 +65,12 @@ bool Shooter::shoot(
   auto target = targets.front();
   auto ekf_x = target.ekf_x();
   double rotate_speed_rpm = std::abs(ekf_x[7]) * 30 / CV_PI;
+  bool is_outpost = target.name == ArmorName::outpost;
 
   // ========== shoot_middle 模式开火判断 ==========
   // 条件：(转速在 60-90 RPM 或 force_shoot_middle) 且不在预瞄模式
-  bool use_shoot_middle = (force_shoot_middle_ ||
-                           (rotate_speed_rpm >= 60 && rotate_speed_rpm <= 90));
+  bool use_shoot_middle =
+    !is_outpost && (force_shoot_middle_ || (rotate_speed_rpm >= 60 && rotate_speed_rpm <= 90));
 
   if (use_shoot_middle && !aimer.get_aim_preview()) {
     auto armor_list = target.armor_xyza_list();
@@ -126,7 +127,7 @@ bool Shooter::shoot(
 
   // ========== 新增：高速小陀螺精确发射模式 ==========
   // 条件：转速 > 90 RPM 且不在预瞄模式
-  if (rotate_speed_rpm > 90 && !aimer.get_aim_preview()) {
+  if (!is_outpost && rotate_speed_rpm > 90 && !aimer.get_aim_preview()) {
     precision_mode_ = true;
 
     auto armor_list = target.armor_xyza_list();
