@@ -77,7 +77,7 @@ io::Command Aimer::aim(
   double effective_rotate_speed =
     use_manual_rotate_speed_ ? manual_rotate_speed_ : observed_rotate_speed;
   if (target.name == ArmorName::outpost && std::abs(observed_rotate_speed) > 0.15) {
-    constexpr double OUTPOST_SPIN_OMEGA = 2.5;
+    constexpr double OUTPOST_SPIN_OMEGA = 3.14;
     double rotate_sign = (effective_rotate_speed >= 0) ? 1.0 : -1.0;
     effective_rotate_speed = rotate_sign * OUTPOST_SPIN_OMEGA;
     target.set_outpost_angular_velocity(effective_rotate_speed);

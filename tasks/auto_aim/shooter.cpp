@@ -76,7 +76,7 @@ bool Shooter::shoot(
                          && lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size());
     double yaw_err = std::abs(gimbal_pos[0] - command.yaw);
     double pitch_err = std::abs(gimbal_pos[1] - command.pitch);
-    bool is_aimed = yaw_err < 1.0 / 57.3 && pitch_err < first_tolerance_;
+    bool is_aimed = yaw_err < 1.2 / 57.3 && pitch_err < first_tolerance_;
 
     // 角度计算（只要 lowest_id 有效就算）
     double angle_diff = -1.0, angle_tolerance = -1.0, fly_time = 0;
@@ -98,7 +98,7 @@ bool Shooter::shoot(
       angle_diff = std::abs(tools::limit_rad(predicted_angle - aim_angle));
 
       double radius = std::abs(ekf_x[8]);
-      angle_tolerance = std::asin(std::clamp(0.067 / radius, 0.0, 1.0));
+      angle_tolerance = std::asin(std::clamp(0.16 / radius, 0.0, 1.0));
 
       sector = static_cast<int>(std::floor(tools::limit_rad(plate_angle) / (2 * CV_PI / 3))) + 1;
       if (sector != outpost_last_sector_) {
