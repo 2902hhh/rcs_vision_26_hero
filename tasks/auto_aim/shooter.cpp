@@ -241,9 +241,11 @@ bool Shooter::shoot(
     is_outpost_armor_near_aim = false;
     int lowest_id = target.lowest_plate_id();
     auto armor_xyza_list = target.aim_armor_xyza_list();
+    bool is_lowest_armor_visible = target.lowest_plate_visible_this_frame();
+    WATCH("outpost_lowest_visible", is_lowest_armor_visible ? 1 : 0);
     if (
-      lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size()) &&
-      aimer.debug_aim_point.valid) {
+      is_lowest_armor_visible && lowest_id >= 0 &&
+      lowest_id < static_cast<int>(armor_xyza_list.size()) && aimer.debug_aim_point.valid) {
       Eigen::Vector3d lowest_armor_xyz = armor_xyza_list[lowest_id].head(3);
       Eigen::Vector3d aim_xyz = aimer.debug_aim_point.xyza.head(3);
       Eigen::Vector3d lowest_armor_ypd = tools::xyz2ypd(lowest_armor_xyz);

@@ -289,6 +289,7 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
   std::list<Armor>::iterator best_iter = armors.end();
   const bool use_outpost_height =
     (target_.name == ArmorName::outpost && target_.lowest_plate_id() >= 0);
+  bool lowest_plate_visible = false;
   const std::vector<Eigen::Vector4d> xyza_list =
     use_outpost_height ? target_.aim_armor_xyza_list() : target_.armor_xyza_list();
 
@@ -302,7 +303,9 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
     solver_.solve(armor);
 
     double armor_min_angle_error = std::numeric_limits<double>::max();
-    for (const auto & xyza : xyza_list) {
+    int armor_best_id = -1;
+    for (int i = 0; i < static_cast<int>(xyza_list.size()); i++) {
+      const auto & xyza = xyza_list[i];
       Eigen::Vector3d ypd = tools::xyz2ypd(xyza.head(3));
       double angle_error = std::abs(tools::limit_rad(armor.ypr_in_world[0] - xyza[3])) +
                            std::abs(tools::limit_rad(armor.ypd_in_world[0] - ypd[0]));
@@ -310,7 +313,14 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
         constexpr double OUTPOST_Z_MATCH_WEIGHT = 8.0;
         angle_error += OUTPOST_Z_MATCH_WEIGHT * std::abs(armor.xyz_in_world[2] - xyza[2]);
       }
-      if (angle_error < armor_min_angle_error) armor_min_angle_error = angle_error;
+      if (angle_error < armor_min_angle_error) {
+        armor_min_angle_error = angle_error;
+        armor_best_id = i;
+      }
+    }
+
+    if (use_outpost_height && armor_best_id == target_.lowest_plate_id()) {
+      lowest_plate_visible = true;
     }
 
     if (armor_min_angle_error < min_angle_error) {
@@ -321,6 +331,7 @@ bool Tracker::update_target(std::list<Armor> & armors, std::chrono::steady_clock
 
   if (best_iter == armors.end()) return false;
 
+  target_.set_lowest_plate_visible_this_frame(lowest_plate_visible);
   target_.update(*best_iter);
 
   return true;

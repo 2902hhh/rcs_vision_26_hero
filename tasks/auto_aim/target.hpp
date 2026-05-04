@@ -44,6 +44,12 @@ public:
 
   // 返回最低板的 angular id（前哨站专用），-1 表示尚未确定
   int lowest_plate_id() const { return lowest_plate_id_; }
+  bool observed_this_frame() const { return observed_this_frame_; }
+  bool lowest_plate_visible_this_frame() const { return lowest_plate_visible_this_frame_; }
+  void set_lowest_plate_visible_this_frame(bool visible)
+  {
+    lowest_plate_visible_this_frame_ = visible;
+  }
 
   bool isinit = false;
 
@@ -55,6 +61,8 @@ private:
   int update_count_;
 
   bool is_switch_, is_converged_;
+  bool observed_this_frame_ = false;
+  bool lowest_plate_visible_this_frame_ = false;
   bool enable_w_acc_limit_ = true;
   double max_w_acc_ = 1.0;
   double last_predict_dt_ = 0.01;

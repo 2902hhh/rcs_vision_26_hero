@@ -22,6 +22,8 @@ Target::Target(
   is_converged_(false),
   switch_count_(0)
 {
+  observed_this_frame_ = true;
+
   auto r = radius;
   priority = armor.priority;
   const Eigen::VectorXd & xyz = armor.xyz_in_world;
@@ -132,6 +134,8 @@ Target::Target(double x, double vyaw, double radius, double h, bool use_ukf) : a
 
 void Target::predict(std::chrono::steady_clock::time_point t)
 {
+  observed_this_frame_ = false;
+  lowest_plate_visible_this_frame_ = false;
   auto dt = tools::delta_time(t, t_);
   last_predict_dt_ = std::max(dt, 1e-3);
   predict(dt);
@@ -144,6 +148,8 @@ void Target::predict(std::chrono::steady_clock::time_point t)
 
 void Target::predict(double dt)
 {
+  observed_this_frame_ = false;
+  lowest_plate_visible_this_frame_ = false;
   last_predict_dt_ = std::max(dt, 1e-3);
   // 状态转移矩阵
   // clang-format off
@@ -223,6 +229,7 @@ void Target::predict(double dt)
 
 void Target::update(const Armor & armor)
 {
+  observed_this_frame_ = true;
   int id = 0;
 
   // 前哨站确定最低板后，用恢复层高辅助匹配，避免三块板在扰动下串 id。
@@ -274,6 +281,9 @@ void Target::update(const Armor & armor)
   if (is_switch_) switch_count_++;
 
   last_id = id;
+  if (name == ArmorName::outpost && id == lowest_plate_id_) {
+    lowest_plate_visible_this_frame_ = true;
+  }
   update_count_++;
 
   // 前哨站 z 补偿：减去经验偏移，消除三板高度差导致的 x[4] 漂移
