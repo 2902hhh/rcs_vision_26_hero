@@ -398,23 +398,9 @@ AimPoint Aimer::choose_aim_point(const Target & target)
       return {true, armor_xyza_list[track_id], false};
     }
 
-    if (!spin_mode_) {
-      aim_preview_ = false;
-      return {true, armor_xyza_list[outpost_lowest_id], true};
-    }
-
+    // 静态和动态模式都直接瞄最低板，弹道迭代自动补偿 fly_time 提前量
     aim_preview_ = false;
-    Eigen::Vector3d lowest_xyz = armor_xyza_list[outpost_lowest_id].head(3);
-    double lowest_dist = std::hypot(lowest_xyz.x(), lowest_xyz.y());
-    double center_dist = std::hypot(ekf_x[0], ekf_x[2]);
-    double aim_z = lowest_xyz.z();
-    if (lowest_dist > 1e-6) {
-      aim_z = lowest_xyz.z() / lowest_dist * center_dist;
-    }
-    WATCH("outpost_center_aim_z", aim_z);
-    WATCH("outpost_lowest_z", lowest_xyz.z());
-    Eigen::Vector4d aim_xyza(ekf_x[0], ekf_x[2], aim_z, 0);
-    return {true, aim_xyza, true, armor_xyza_list[outpost_lowest_id], true};
+    return {true, armor_xyza_list[outpost_lowest_id], true};
   }
 
   // ========== 策略1：非小陀螺 (转速 < 2 rad/s) ==========

@@ -236,43 +236,8 @@ bool Shooter::shoot(
 
   // 弹道有效: Aimer 解算成功
   bool is_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable;
+  // 前哨站直接瞄最低板，弹道迭代已补偿 fly_time，常规 yaw/pitch 检查即可决定开火
   bool is_outpost_armor_near_aim = true;
-  if (is_outpost) {
-    is_outpost_armor_near_aim = false;
-    int lowest_id = target.lowest_plate_id();
-    auto armor_xyza_list = target.aim_armor_xyza_list();
-    bool is_lowest_armor_visible = target.lowest_plate_visible_this_frame();
-    WATCH("outpost_lowest_visible", is_lowest_armor_visible ? 1 : 0);
-    WATCH("outpost_lowest_id", lowest_id);
-    WATCH("outpost_has_fire_xyza", aimer.debug_aim_point.has_fire_xyza ? 1 : 0);
-    WATCH("outpost_aim_valid", aimer.debug_aim_point.valid ? 1 : 0);
-    if (
-      is_lowest_armor_visible && lowest_id >= 0 &&
-      lowest_id < static_cast<int>(armor_xyza_list.size()) && aimer.debug_aim_point.valid) {
-      Eigen::Vector3d lowest_armor_xyz = armor_xyza_list[lowest_id].head(3);
-      if (aimer.debug_aim_point.has_fire_xyza) {
-        lowest_armor_xyz = aimer.debug_aim_point.fire_xyza.head(3);
-      }
-      Eigen::Vector3d aim_xyz = aimer.debug_aim_point.xyza.head(3);
-      Eigen::Vector3d lowest_armor_ypd = tools::xyz2ypd(lowest_armor_xyz);
-      Eigen::Vector3d aim_ypd = tools::xyz2ypd(aim_xyz);
-      double outpost_yaw_error = std::abs(tools::limit_rad(lowest_armor_ypd[0] - aim_ypd[0]));
-      double outpost_pitch_error = std::abs(tools::limit_rad(lowest_armor_ypd[1] - aim_ypd[1]));
-      double outpost_yaw_tolerance = tolerance;
-      if (aimer.debug_aim_point.has_fire_xyza) {
-        double center_dist = std::hypot(aim_xyz.x(), aim_xyz.y());
-        if (center_dist > 1e-6) {
-          double radius_ratio = std::clamp(std::abs(ekf_x[8]) / center_dist, 0.0, 0.95);
-          outpost_yaw_tolerance = std::max(tolerance, std::asin(radius_ratio));
-        }
-      }
-      is_outpost_armor_near_aim = outpost_yaw_error < outpost_yaw_tolerance;
-      WATCH("outpost_armor_yaw_diff", outpost_yaw_error * 57.3);
-      WATCH("outpost_yaw_tolerance", outpost_yaw_tolerance * 57.3);
-      WATCH("outpost_armor_pitch_diff", outpost_pitch_error * 57.3);
-    }
-    WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
-  }
 
   // 6. 调试日志 (可选，防止刷屏可加计数器)
   static int debug_cnt = 0;
