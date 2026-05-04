@@ -272,21 +272,30 @@ bool Shooter::shoot(
         Eigen::Vector2d predicted_pos(
           ekf_x[0] + radius * std::cos(predicted_angle),
           ekf_x[2] + radius * std::sin(predicted_angle));
-        double predicted_yaw = std::atan2(predicted_pos.y(), predicted_pos.x());
+        // ========== 近侧判断：只有预测板距我们 < 圆心距时才允许开火 ==========
+        double predicted_dist = predicted_pos.norm();
+        double center_dist = car_middle.norm();
+        bool is_on_near_side = predicted_dist < center_dist;
 
-        // 预测最低板 yaw 与枪口 yaw 的偏差
-        double yaw_diff = std::abs(tools::limit_rad(predicted_yaw - aim_yaw));
-
-        // 偏差在容忍范围内 → 子弹到达时最低板正好在枪口射线上
-        double outpost_yaw_tolerance = std::max(tolerance, std::asin(std::clamp(radius / car_middle.norm(), 0.0, 0.95)));
-        if (yaw_diff < outpost_yaw_tolerance) {
-          is_outpost_armor_near_aim = true;
-          outpost_shot_this_cycle_ = true;
-        }
-
+        WATCH("outpost_near_side", is_on_near_side ? 1 : 0);
         WATCH("outpost_fly_time_ms", aimer.debug_aim_point.fly_time * 1000);
-        WATCH("outpost_predicted_yaw_diff_deg", yaw_diff * 57.3);
-        WATCH("outpost_yaw_tolerance_deg", outpost_yaw_tolerance * 57.3);
+
+        if (is_on_near_side) {
+          double predicted_yaw = std::atan2(predicted_pos.y(), predicted_pos.x());
+
+          // 预测最低板 yaw 与枪口 yaw 的偏差
+          double yaw_diff = std::abs(tools::limit_rad(predicted_yaw - aim_yaw));
+
+          // 偏差在容忍范围内 → 子弹到达时最低板正好在枪口射线上
+          double outpost_yaw_tolerance = std::max(tolerance, std::asin(std::clamp(radius / car_middle.norm(), 0.0, 0.95)));
+          if (yaw_diff < outpost_yaw_tolerance) {
+            is_outpost_armor_near_aim = true;
+            outpost_shot_this_cycle_ = true;
+          }
+
+          WATCH("outpost_predicted_yaw_diff_deg", yaw_diff * 57.3);
+          WATCH("outpost_yaw_tolerance_deg", outpost_yaw_tolerance * 57.3);
+        }
       }
 
       WATCH("outpost_sector", sector);
