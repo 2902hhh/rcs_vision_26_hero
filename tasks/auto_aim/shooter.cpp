@@ -246,9 +246,10 @@ bool Shooter::shoot(
     if (
       is_lowest_armor_visible && lowest_id >= 0 &&
       lowest_id < static_cast<int>(armor_xyza_list.size()) && aimer.debug_aim_point.valid) {
-      Eigen::Vector3d lowest_armor_xyz = aimer.debug_aim_point.has_fire_xyza
-                                           ? aimer.debug_aim_point.fire_xyza.head(3)
-                                           : armor_xyza_list[lowest_id].head(3);
+      Eigen::Vector3d lowest_armor_xyz = armor_xyza_list[lowest_id].head(3);
+      if (aimer.debug_aim_point.has_fire_xyza) {
+        lowest_armor_xyz = aimer.debug_aim_point.fire_xyza.head(3);
+      }
       Eigen::Vector3d aim_xyz = aimer.debug_aim_point.xyza.head(3);
       Eigen::Vector3d lowest_armor_ypd = tools::xyz2ypd(lowest_armor_xyz);
       Eigen::Vector3d aim_ypd = tools::xyz2ypd(aim_xyz);
