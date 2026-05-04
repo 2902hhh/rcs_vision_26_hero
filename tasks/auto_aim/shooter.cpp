@@ -236,6 +236,27 @@ bool Shooter::shoot(
 
   // 弹道有效: Aimer 解算成功
   bool is_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable;
+  bool is_outpost_armor_near_aim = true;
+  if (is_outpost) {
+    is_outpost_armor_near_aim = false;
+    int lowest_id = target.lowest_plate_id();
+    auto armor_xyza_list = target.aim_armor_xyza_list();
+    if (
+      lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size()) &&
+      aimer.debug_aim_point.valid) {
+      Eigen::Vector3d lowest_armor_xyz = armor_xyza_list[lowest_id].head(3);
+      Eigen::Vector3d aim_xyz = aimer.debug_aim_point.xyza.head(3);
+      Eigen::Vector3d lowest_armor_ypd = tools::xyz2ypd(lowest_armor_xyz);
+      Eigen::Vector3d aim_ypd = tools::xyz2ypd(aim_xyz);
+      double outpost_yaw_error = std::abs(tools::limit_rad(lowest_armor_ypd[0] - aim_ypd[0]));
+      double outpost_pitch_error = std::abs(tools::limit_rad(lowest_armor_ypd[1] - aim_ypd[1]));
+      is_outpost_armor_near_aim =
+        outpost_yaw_error < tolerance && outpost_pitch_error < tolerance;
+      WATCH("outpost_armor_yaw_diff", outpost_yaw_error * 57.3);
+      WATCH("outpost_armor_pitch_diff", outpost_pitch_error * 57.3);
+      WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
+    }
+  }
 
   // 6. 调试日志 (可选，防止刷屏可加计数器)
   static int debug_cnt = 0;
@@ -255,7 +276,7 @@ bool Shooter::shoot(
   // 7. 最终开火判据
   // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
   // 修改后: 加入 is_pitch_aimed
-  if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid) {
+  if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid && is_outpost_armor_near_aim) {
     if (!cooldown_cycle_active_) {
       last_fire_time_ = now;
       cooldown_cycle_active_ = true;
