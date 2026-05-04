@@ -256,9 +256,9 @@ bool Shooter::shoot(
       }
 
       if (!outpost_shot_this_cycle_) {
-        // 枪口指向中心，计算中心方向角
+        // 枪口射线方向（原点→圆心，单位向量）
         Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
-        double aim_yaw = std::atan2(car_middle.y(), car_middle.x());
+        Eigen::Vector2d aim_dir = car_middle.normalized();
 
         // 最低板当前角度（相对于旋转中心）
         double plate_angle = std::atan2(lowest_2d.y() - ekf_x[2], lowest_2d.x() - ekf_x[0]);
@@ -272,6 +272,7 @@ bool Shooter::shoot(
         Eigen::Vector2d predicted_pos(
           ekf_x[0] + radius * std::cos(predicted_angle),
           ekf_x[2] + radius * std::sin(predicted_angle));
+
         // ========== 近侧判断：只有预测板距我们 < 圆心距时才允许开火 ==========
         double predicted_dist = predicted_pos.norm();
         double center_dist = car_middle.norm();
@@ -281,20 +282,19 @@ bool Shooter::shoot(
         WATCH("outpost_fly_time_ms", aimer.debug_aim_point.fly_time * 1000);
 
         if (is_on_near_side) {
-          double predicted_yaw = std::atan2(predicted_pos.y(), predicted_pos.x());
+          // 预测板到枪口射线的垂直距离（叉积 / aim_dir模长，aim_dir已单位化）
+          double dist_perp = std::abs(
+              predicted_pos.x() * aim_dir.y() - predicted_pos.y() * aim_dir.x());
 
-          // 预测最低板 yaw 与枪口 yaw 的偏差
-          double yaw_diff = std::abs(tools::limit_rad(predicted_yaw - aim_yaw));
-
-          // 偏差在容忍范围内 → 子弹到达时最低板正好在枪口射线上
-          double outpost_yaw_tolerance = std::max(tolerance, std::asin(std::clamp(radius / car_middle.norm(), 0.0, 0.95)));
-          if (yaw_diff < outpost_yaw_tolerance) {
+          // 容忍度：装甲板半宽 (~67mm) + 余量
+          const double outpost_dist_tolerance = 0.08;
+          if (dist_perp < outpost_dist_tolerance) {
             is_outpost_armor_near_aim = true;
             outpost_shot_this_cycle_ = true;
           }
 
-          WATCH("outpost_predicted_yaw_diff_deg", yaw_diff * 57.3);
-          WATCH("outpost_yaw_tolerance_deg", outpost_yaw_tolerance * 57.3);
+          WATCH("outpost_dist_perp_mm", dist_perp * 1000);
+          WATCH("outpost_dist_tolerance_mm", outpost_dist_tolerance * 1000);
         }
       }
 
@@ -322,6 +322,7 @@ bool Shooter::shoot(
   // 7. 最终开火判据
   // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
   // 修改后: 加入 is_pitch_aimed
+
   if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid && is_outpost_armor_near_aim) {
     if (!cooldown_cycle_active_) {
       last_fire_time_ = now;
