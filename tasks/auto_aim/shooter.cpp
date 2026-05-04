@@ -67,6 +67,86 @@ bool Shooter::shoot(
   double rotate_speed_rpm = std::abs(ekf_x[7]) * 30 / CV_PI;
   bool is_outpost = target.name == ArmorName::outpost;
 
+  // ========== 前哨站开火逻辑（完全独立）==========
+  if (is_outpost) {
+    // 1. 基本条件：弹道有效 + 最低板可用
+    int lowest_id = target.lowest_plate_id();
+    auto armor_xyza_list = target.armor_xyza_list();
+    bool outpost_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable
+                         && lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size());
+    if (!outpost_valid) {
+      last_command_ = command;
+      return false;
+    }
+
+    // 2. 云台对准检查
+    double yaw_err = std::abs(gimbal_pos[0] - command.yaw);
+    double pitch_err = std::abs(gimbal_pos[1] - command.pitch);
+    if (yaw_err > 1.0 / 57.3 || pitch_err > first_tolerance_) {
+      last_command_ = command;
+      return false;
+    }
+
+    // 3. 核心角度计算
+    // 瞄准方向：从圆心看向原点（我们的方向）
+    double aim_angle = std::atan2(-ekf_x[2], -ekf_x[0]);
+
+    // 最低板当前角度（相对于旋转中心）
+    Eigen::Vector2d lowest_2d(armor_xyza_list[lowest_id][0], armor_xyza_list[lowest_id][1]);
+    double plate_angle = std::atan2(lowest_2d.y() - ekf_x[2], lowest_2d.x() - ekf_x[0]);
+
+    // 飞行时间后的预测角度
+    double omega = ekf_x[7];
+    double fly_time = aimer.debug_aim_point.fly_time;
+    double predicted_angle = plate_angle + omega * fly_time;
+
+    // 角度差：预测角度与瞄准方向的偏差
+    double angle_diff = std::abs(tools::limit_rad(predicted_angle - aim_angle));
+
+    // 角度容忍度：装甲板半宽 / 旋转半径
+    double radius = std::abs(ekf_x[8]);
+    double angle_tolerance = std::asin(std::clamp(0.067 / radius, 0.0, 1.0));
+
+    // 4. 扇区限射：每 120° 最多开一枪
+    int sector = static_cast<int>(std::floor(tools::limit_rad(plate_angle) / (2 * CV_PI / 3))) + 1;
+    if (sector != outpost_last_sector_) {
+      outpost_shot_this_cycle_ = false;
+      outpost_last_sector_ = sector;
+    }
+
+    // 5. 近侧判断：预测板距我们 < 圆心距
+    Eigen::Vector2d predicted_pos(
+      ekf_x[0] + radius * std::cos(predicted_angle),
+      ekf_x[2] + radius * std::sin(predicted_angle));
+    Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
+    bool is_near_side = predicted_pos.norm() < car_middle.norm();
+
+    // 6. 最终开火判定
+    bool can_fire = is_near_side && !outpost_shot_this_cycle_ && angle_diff < angle_tolerance;
+
+    WATCH("outpost_angle_diff_deg", angle_diff * 57.3);
+    WATCH("outpost_tolerance_deg", angle_tolerance * 57.3);
+    WATCH("outpost_near_side", is_near_side ? 1 : 0);
+    WATCH("outpost_fly_time_ms", fly_time * 1000);
+    WATCH("outpost_sector", sector);
+    WATCH("outpost_can_fire", can_fire ? 1 : 0);
+
+    if (can_fire) {
+      outpost_shot_this_cycle_ = true;
+      if (!cooldown_cycle_active_) {
+        last_fire_time_ = now;
+        cooldown_cycle_active_ = true;
+      }
+      last_command_ = command;
+      return true;
+    }
+
+    last_command_ = command;
+    return false;
+  }
+
+  // ========== 以下为普通装甲板开火逻辑 ==========
+
   // ========== shoot_middle 模式开火判断 ==========
   // 条件：(转速在 60-90 RPM 或 force_shoot_middle) 且不在预瞄模式
   bool use_shoot_middle =
@@ -237,73 +317,6 @@ bool Shooter::shoot(
   // 弹道有效: Aimer 解算成功
   bool is_valid = aimer.debug_aim_point.valid && aimer.debug_aim_point.shootable;
 
-  // ========== 前哨站精确开火时机 ==========
-  // 枪口指向旋转中心（固定点），利用 fly_time 预测最低板到达枪口射线的时刻
-  bool is_outpost_armor_near_aim = true;
-  if (is_outpost) {
-    is_outpost_armor_near_aim = false;
-    int lowest_id = target.lowest_plate_id();
-    auto armor_xyza_list = target.armor_xyza_list();
-
-    if (lowest_id >= 0 && lowest_id < static_cast<int>(armor_xyza_list.size()) && is_valid) {
-      // 扇区检测：每 120° 一个扇区，每扇区最多开一枪
-      Eigen::Vector2d lowest_2d(armor_xyza_list[lowest_id][0], armor_xyza_list[lowest_id][1]);
-      double armor_angle = std::atan2(lowest_2d.y() - ekf_x[2], lowest_2d.x() - ekf_x[0]);
-      int sector = static_cast<int>(std::floor(tools::limit_rad(armor_angle) / (2 * CV_PI / 3))) + 1;
-      if (sector != outpost_last_sector_) {
-        outpost_shot_this_cycle_ = false;
-        outpost_last_sector_ = sector;
-      }
-
-      if (!outpost_shot_this_cycle_) {
-        // 枪口射线方向（原点→圆心，单位向量）
-        Eigen::Vector2d car_middle(ekf_x[0], ekf_x[2]);
-        Eigen::Vector2d aim_dir = car_middle.normalized();
-
-        // 最低板当前角度（相对于旋转中心）
-        double plate_angle = std::atan2(lowest_2d.y() - ekf_x[2], lowest_2d.x() - ekf_x[0]);
-
-        // fly_time 后最低板的预测角度
-        double omega = ekf_x[7];
-        double predicted_angle = plate_angle + omega * aimer.debug_aim_point.fly_time;
-
-        // 最低板在 fly_time 后的世界坐标
-        double radius = std::abs(ekf_x[8]);
-        Eigen::Vector2d predicted_pos(
-          ekf_x[0] + radius * std::cos(predicted_angle),
-          ekf_x[2] + radius * std::sin(predicted_angle));
-
-        // ========== 近侧判断：只有预测板距我们 < 圆心距时才允许开火 ==========
-        double predicted_dist = predicted_pos.norm();
-        double center_dist = car_middle.norm();
-        bool is_on_near_side = predicted_dist < center_dist;
-
-        WATCH("outpost_near_side", is_on_near_side ? 1 : 0);
-        WATCH("outpost_fly_time_ms", aimer.debug_aim_point.fly_time * 1000);
-
-        if (is_on_near_side) {
-          // 预测板到枪口射线的垂直距离（叉积 / aim_dir模长，aim_dir已单位化）
-          double dist_perp = std::abs(
-              predicted_pos.x() * aim_dir.y() - predicted_pos.y() * aim_dir.x());
-
-          // 容忍度：装甲板半宽 (~67mm) + 余量
-          const double outpost_dist_tolerance = 0.08;
-          if (dist_perp < outpost_dist_tolerance) {
-            is_outpost_armor_near_aim = true;
-            outpost_shot_this_cycle_ = true;
-          }
-
-          WATCH("outpost_dist_perp_mm", dist_perp * 1000);
-          WATCH("outpost_dist_tolerance_mm", outpost_dist_tolerance * 1000);
-        }
-      }
-
-      WATCH("outpost_sector", sector);
-      WATCH("outpost_shot_this_cycle", outpost_shot_this_cycle_ ? 1 : 0);
-    }
-    WATCH("outpost_armor_near_aim", is_outpost_armor_near_aim ? 1 : 0);
-  }
-
   // 6. 调试日志 (可选，防止刷屏可加计数器)
   static int debug_cnt = 0;
   if (debug_cnt++ % 100 == 0) { // 每100次调用打印一次
@@ -320,10 +333,8 @@ bool Shooter::shoot(
   WATCH("precision_mode", 0);
 
   // 7. 最终开火判据
-  // 原逻辑: if (is_yaw_stable && is_yaw_aimed && is_valid)
-  // 修改后: 加入 is_pitch_aimed
 
-  if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid && is_outpost_armor_near_aim) {
+  if (is_yaw_stable && is_yaw_aimed && is_pitch_aimed && is_valid) {
     if (!cooldown_cycle_active_) {
       last_fire_time_ = now;
       cooldown_cycle_active_ = true;
