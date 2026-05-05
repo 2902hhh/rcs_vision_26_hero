@@ -97,6 +97,13 @@ int main(int argc, char * argv[])
     q = gimbal.q(t - 1ms);
     mode = gimbal.mode();
 
+    // 根据下位机发送的 enemy_color 动态设置敌方颜色，0 时回退 yaml 默认值
+    if (gs.enemy_color == 101) {
+      tracker.set_enemy_color(auto_aim::Color::red);
+    } else if (gs.enemy_color == 1) {
+      tracker.set_enemy_color(auto_aim::Color::blue);
+    }
+
     if (last_mode != mode) {
       tools::logger()->info("Switch to {}", gimbal.str(mode));
       last_mode = mode;

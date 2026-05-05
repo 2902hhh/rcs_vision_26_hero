@@ -28,6 +28,8 @@ Tracker::Tracker(const std::string & config_path, Solver & solver)
   normal_temp_lost_count_ = max_temp_lost_count_;
 }
 
+void Tracker::set_enemy_color(Color c) { enemy_color_ = c; }
+
 std::string Tracker::state() const { return state_; }
 
 std::list<Target> Tracker::track(

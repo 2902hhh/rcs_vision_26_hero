@@ -21,6 +21,8 @@ public:
 
   std::string state() const;
 
+  void set_enemy_color(Color c);
+
   std::list<Target> track(
     std::list<Armor> & armors, std::chrono::steady_clock::time_point t,
     bool use_enemy_color = true);
