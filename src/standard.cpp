@@ -82,6 +82,8 @@ int main(int argc, char * argv[])
     // 增加空图检查，防止程序崩溃
     if (img.empty()) continue;
 
+    auto t_loop = std::chrono::steady_clock::now();
+
     if (has_last_frame_timestamp) {
       double frame_dt = tools::delta_time(t, last_frame_timestamp);
       if (frame_dt > 0.0 && frame_dt < 0.2) {
@@ -91,7 +93,7 @@ int main(int argc, char * argv[])
     last_frame_timestamp = t;
     has_last_frame_timestamp = true;
 
-    auto gs = gimbal.state(); 
+    auto gs = gimbal.state();
     q = gimbal.q(t - 1ms);
     mode = gimbal.mode();
 
@@ -107,19 +109,25 @@ int main(int argc, char * argv[])
     Eigen::Vector3d ypr = tools::eulers(solver.R_gimbal2world(), 2, 1, 0);
 
     // 1. 识别
+    auto t_detect = std::chrono::steady_clock::now();
     auto armors = detector.detect(img);
+    auto t_after_detect = std::chrono::steady_clock::now();
 
     // 2. 追踪
     auto targets = tracker.track(armors, t);
-       
+    auto t_after_track = std::chrono::steady_clock::now();
+
     // 3. 瞄准
     auto command = aimer.aim(targets, t, gs.bullet_speed);
+    auto t_after_aim = std::chrono::steady_clock::now();
 
-    command.shoot = shooter.shoot(command, aimer, targets, ypr); 
+    command.shoot = shooter.shoot(command, aimer, targets, ypr);
+    auto t_after_shoot = std::chrono::steady_clock::now(); 
     
     WATCH("fire", command.shoot);
 
     gimbal.send(command);
+    auto t_after_send = std::chrono::steady_clock::now();
 
     // ==================== 可视化代码开始 ====================
     if (enable_display) {
@@ -210,6 +218,21 @@ int main(int argc, char * argv[])
         }
     }
     // ==================== 可视化代码结束 ====================
+
+    // 帧率计时输出
+    double dt_detect = tools::delta_time(t_after_detect, t_detect) * 1000;
+    double dt_track  = tools::delta_time(t_after_track, t_after_detect) * 1000;
+    double dt_aim    = tools::delta_time(t_after_aim, t_after_track) * 1000;
+    double dt_shoot  = tools::delta_time(t_after_shoot, t_after_aim) * 1000;
+    double dt_send   = tools::delta_time(t_after_send, t_after_shoot) * 1000;
+    double dt_total  = tools::delta_time(std::chrono::steady_clock::now(), t_loop) * 1000;
+    WATCH("time_detect_ms", dt_detect);
+    WATCH("time_track_ms", dt_track);
+    WATCH("time_aim_ms", dt_aim);
+    WATCH("time_shoot_ms", dt_shoot);
+    WATCH("time_send_ms", dt_send);
+    WATCH("time_total_ms", dt_total);
+    WATCH("fps", fps);
 
     FLUSH_DEBUG();
 
