@@ -71,7 +71,7 @@ outpost_max_temp_lost_count: 300
 
 #####-----aimer参数-----#####
 yaw_offset: 0.8 # degree -2.5 正左
-pitch_offset: -0.6  # degree 2 正上（普通装甲板）
+pitch_offset: 1.4  # degree 2 正上（普通装甲板）
 outpost_pitch_offset: 1.4  # degree（前哨站专用 pitch 偏置）
 comming_angle: 120 # degree
 leaving_angle: 0 # degree
@@ -103,7 +103,7 @@ min_shoot_middle_distance: 1.0  # shoot_middle 模式最小距离，m
 max_shoot_middle_distance: 3.2  # shoot_middle 模式最大距离，m
 
 #####-----shooter参数-----#####
-first_tolerance: 1.0 # 近距离射击容差，degree
+first_tolerance: 2.0 # 近距离射击容差，degree
 second_tolerance: 1.0 # 远距离射击容差，degree
 judge_distance: 3 #距离判断阈值
 auto_fire: true # 是否由自瞄控制射击

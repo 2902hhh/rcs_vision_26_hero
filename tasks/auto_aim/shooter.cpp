@@ -318,7 +318,7 @@ bool Shooter::shoot(
   bool is_yaw_stable = yaw_cmd_diff < tolerance * 2;
 
   // Yaw 对准: 实际 Yaw 误差小于容忍度
-  bool is_yaw_aimed = yaw_aim_error < 1.0 /57.3; // 固定0.2度的Yaw对准要求，防止过于宽松导致误伤
+  bool is_yaw_aimed = yaw_aim_error < 1.5 /57.3; // 固定0.2度的Yaw对准要求，防止过于宽松导致误伤
 
   // === 新增: Pitch 对准 ===
   bool is_pitch_aimed = pitch_aim_error < tolerance;
