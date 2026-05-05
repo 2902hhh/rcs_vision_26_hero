@@ -8,6 +8,7 @@
 
 #include "tools/img_tools.hpp"
 #include "tools/logger.hpp"
+#include "tools/debug_monitor.hpp"
 
 namespace auto_aim
 {
@@ -97,8 +98,10 @@ std::list<Armor> YOLOV5::detect(const cv::Mat & raw_img, int frame_count)
   ov::Tensor input_tensor(ov::element::u8, {1, 640, 640, 3}, input.data);
 
   // 推理
+  auto t0 = std::chrono::steady_clock::now();
   infer_request_.set_input_tensor(input_tensor);
   infer_request_.infer();
+  auto t1 = std::chrono::steady_clock::now();
 
   auto output_tensor = infer_request_.get_output_tensor();
   auto output_shape = output_tensor.get_shape();
@@ -112,7 +115,13 @@ std::list<Armor> YOLOV5::detect(const cv::Mat & raw_img, int frame_count)
       cv::transpose(tmp, output);
   }
 
-  return parse(scale, output, raw_img, frame_count);
+  auto result = parse(scale, output, raw_img, frame_count);
+  auto t2 = std::chrono::steady_clock::now();
+  double infer_ms = std::chrono::duration<double>(t1 - t0).count() * 1000;
+  double post_ms = std::chrono::duration<double>(t2 - t1).count() * 1000;
+  WATCH("yolo_infer_ms", infer_ms);
+  WATCH("yolo_post_ms", post_ms);
+  return result;
 }
 
 std::list<Armor> YOLOV5::parse(
