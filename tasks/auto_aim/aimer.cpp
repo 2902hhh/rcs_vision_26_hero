@@ -18,6 +18,7 @@ Aimer::Aimer(const std::string & config_path)
   auto yaml = YAML::LoadFile(config_path);
   yaw_offset_ = yaml["yaw_offset"].as<double>() / 57.3;        // degree to rad
   pitch_offset_ = yaml["pitch_offset"].as<double>() / 57.3;    // degree to rad
+  outpost_pitch_offset_ = yaml["outpost_pitch_offset"].as<double>(yaml["pitch_offset"].as<double>()) / 57.3;  // 默认与 pitch_offset 相同
   comming_angle_ = yaml["comming_angle"].as<double>() / 57.3;  // degree to rad
   leaving_angle_ = yaml["leaving_angle"].as<double>() / 57.3;  // degree to rad
   high_speed_delay_time_ = yaml["high_speed_delay_time"].as<double>();
@@ -167,7 +168,8 @@ io::Command Aimer::aim(
   Eigen::Vector3d final_xyz = debug_aim_point.xyza.head(3);
   debug_aim_point.fly_time = current_traj.fly_time;
   double yaw = std::atan2(final_xyz.y(), final_xyz.x()) + yaw_offset_;
-  double pitch = -(current_traj.pitch + pitch_offset_);  //世界坐标系下pitch向上为负
+  double effective_pitch_offset = (target.name == ArmorName::outpost) ? outpost_pitch_offset_ : pitch_offset_;
+  double pitch = -(current_traj.pitch + effective_pitch_offset);  //世界坐标系下pitch向上为负
 
   // ==================== [新增] 计算前馈速度 (Feedforward Velocity) ====================
   // 利用 EKF 预测出的线性速度 (vx, vy, vz) 计算云台 Yaw/Pitch 轴所需的角速度
