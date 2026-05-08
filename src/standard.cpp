@@ -103,7 +103,10 @@ int main(int argc, char * argv[])
     } else if (gs.enemy_color == 1) {
       tracker.set_enemy_color(auto_aim::Color::blue);
     }
-
+    //tools::logger()->warn("enemy_color: {}", gs.enemy_color);
+    //tools::logger()->warn("speed: {}", gs.bullet_speed);
+    //tools::logger()->warn("enemy_color: {}", gs.enemy_color);
+    //tools::logger()->warn("enemy_color: {}", gs.enemy_color);
     if (last_mode != mode) {
       tools::logger()->info("Switch to {}", gimbal.str(mode));
       last_mode = mode;

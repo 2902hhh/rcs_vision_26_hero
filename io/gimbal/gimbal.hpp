@@ -24,7 +24,10 @@ struct __attribute__((packed)) GimbalToVision
   float yaw_vel;
   float pitch;
   float pitch_vel;
+  
+  
   float bullet_speed;
+  
   uint16_t bullet_count;  // 子弹累计发送次数
   uint8_t enemy_color;   // 敌方颜色: 1=蓝, 101=红
   uint16_t crc16;

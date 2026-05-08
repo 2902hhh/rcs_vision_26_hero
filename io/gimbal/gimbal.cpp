@@ -295,7 +295,7 @@ void Gimbal::read_thread()
   tools::logger()->info("[Gimbal] read_thread started.");
   
   uint8_t frame_buffer[sizeof(GimbalToVision)];
-  
+  //WATCH("frame_buffer_size", sizeof(GimbalToVision));
   enum class ParseState {
     WAITING_FOR_S,
     WAITING_FOR_P
@@ -332,7 +332,15 @@ void Gimbal::read_thread()
                 auto t = std::chrono::steady_clock::now();
                 
                 std::memcpy(&rx_data_, frame_buffer, sizeof(GimbalToVision));
-
+                //tools::logger()->info("[Gimbal] CRC OK, enemy_color={}, bullet_speed={:.1f}", rx_data_.enemy_color, rx_data_.bullet_speed);
+                //                 auto ec = static_cast<int>(rx_data_.enemy_color);
+                // auto bs = static_cast<float>(rx_data_.bullet_speed);
+                // tools::logger()->info("[Gimbal] CRC OK, enemy_color={}, bullet_speed={:.1f}", ec, bs);
+                               std::string hex;
+                for (size_t i = 0; i < sizeof(GimbalToVision); i++) {
+                    hex += fmt::format("{:02X} ", frame_buffer[i]);
+                }
+                //tools::logger()->info("[Gimbal] RAW: {}", hex);
                 Eigen::Quaterniond q(rx_data_.q[0], rx_data_.q[1], rx_data_.q[2], rx_data_.q[3]);
                 queue_.push({q, t});
 
@@ -347,7 +355,14 @@ void Gimbal::read_thread()
                 state_.bullet_speed = rx_data_.bullet_speed;
                 state_.bullet_count = rx_data_.bullet_count;
                 state_.enemy_color = rx_data_.enemy_color;
-                WATCH("speed_debug",state_.bullet_speed);
+                // WATCH("yawspeed_debug",state_.yaw);
+                // WATCH("yaw_vel_debug",state_.yaw_vel);
+                // WATCH("pitchspeed_debug",state_.pitch);
+                // WATCH("pitch_vel_debug",state_.pitch_vel);
+                // WATCH("bullet_speedspeed_debug",state_.bullet_speed);
+                // WATCH("bullet_countspeed_debug",state_.bullet_count);
+                // WATCH("enemy_color_debug",state_.enemy_color);
+                // WATCH("frame_buffer_size", sizeof(GimbalToVision));
                  switch (rx_data_.mode) {
                     case 0: mode_ = GimbalMode::IDLE; break;
                     case 1: mode_ = GimbalMode::AUTO_AIM; break;
