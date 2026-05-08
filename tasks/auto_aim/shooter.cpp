@@ -124,6 +124,10 @@ bool Shooter::shoot(
     WATCH("outpost_yaw_err_deg", yaw_err * 57.3);
     WATCH("outpost_pitch_err_deg", pitch_err * 57.3);
 
+     tools::logger()->info(
+          "[Shooter_outpost] YawErr:{:.3f} | PitchErr:{:.3f} ",
+            yaw_err * 57.3, pitch_err * 57.3
+      );
     // 1. 基本条件检查
     if (!outpost_valid) {
       last_command_ = command;
@@ -328,9 +332,9 @@ bool Shooter::shoot(
 
   // 6. 调试日志 (可选，防止刷屏可加计数器)
   static int debug_cnt = 0;
-  if (debug_cnt++ % 100 == 0) { // 每100次调用打印一次
+  if (debug_cnt++ % 10 == 0) { // 每10次调用打印一次
       tools::logger()->info(
-          "[Shooter] Dist:{:.2f}m Tol:{:.3f} | YawErr:{:.3f} OK:{} | PitchErr:{:.3f} OK:{} | RPM={:.1f}",
+          "[Shooter_normal] Dist:{:.2f}m Tol:{:.3f} | YawErr:{:.3f} OK:{} | PitchErr:{:.3f} OK:{} | RPM={:.1f}",
           distance, tolerance*57.3,
           yaw_aim_error, is_yaw_aimed,
           pitch_aim_error, is_pitch_aimed,
