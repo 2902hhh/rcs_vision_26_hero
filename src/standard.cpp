@@ -42,6 +42,7 @@ int main(int argc, char * argv[])
   auto yaml_config = YAML::LoadFile(config_path);
   bool enable_recording = yaml_config["record_visualization"].as<bool>(false);
   int visualization_fps = yaml_config["visualization_fps"].as<int>(30);
+  double visualization_scale = yaml_config["visualization_scale"].as<double>(0.5);
   cv::VideoWriter viz_writer;
   bool viz_writer_initialized = false;
 
@@ -227,17 +228,21 @@ int main(int argc, char * argv[])
         tools::draw_text(vis_img, fmt::format("FPS: {:.1f}", fps), {20, 40}, {255, 255, 255}, 1.0, 2);
         tools::draw_text(vis_img, fmt::format("Mode: {}", gimbal.str(mode)), {20, 140}, {255, 255, 255}, 1.0, 2);
 
-        // 录制：写入原始尺寸（放在 resize 之前，保留原始分辨率）
+        // 录制：按配置缩放后写入，减小视频体积
         if (enable_recording) {
             if (!viz_writer_initialized) {
                 auto viz_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_viz.avi",
                                             std::chrono::system_clock::now());
+                cv::Size viz_size(vis_img.cols * visualization_scale,
+                                  vis_img.rows * visualization_scale);
                 viz_writer.open(viz_path,
                                 cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-                                visualization_fps, vis_img.size());
+                                visualization_fps, viz_size);
                 viz_writer_initialized = true;
             }
-            viz_writer.write(vis_img);
+            cv::Mat viz_frame;
+            cv::resize(vis_img, viz_frame, {}, visualization_scale, visualization_scale);
+            viz_writer.write(viz_frame);
         }
 
         // E. 显示图像 (缩小一半显示，防止超出屏幕)
