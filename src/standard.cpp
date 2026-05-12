@@ -3,6 +3,7 @@
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include "io/camera.hpp"
 #include "io/cboard.hpp"
@@ -35,6 +36,13 @@ int main(int argc, char * argv[])
   
   // 获取是否显示的标志
   bool enable_display = cli.get<bool>("display");
+
+  // 读取可视化录制配置
+  auto yaml_config = YAML::LoadFile(config_path);
+  bool enable_recording = yaml_config["record_visualization"].as<bool>(false);
+  int visualization_fps = yaml_config["visualization_fps"].as<int>(30);
+  cv::VideoWriter viz_writer;
+  bool viz_writer_initialized = false;
 
   if (cli.has("help") || config_path.empty()) {
     cli.printMessage();
@@ -140,7 +148,7 @@ int main(int argc, char * argv[])
     auto t_after_send = std::chrono::steady_clock::now();
 
     // ==================== 可视化代码开始 ====================
-    if (enable_display) {
+    if (enable_display || enable_recording) {
         // 克隆一份图像用于绘制，避免影响原图处理
         cv::Mat vis_img = img.clone();
 
@@ -218,13 +226,28 @@ int main(int argc, char * argv[])
         tools::draw_text(vis_img, fmt::format("FPS: {:.1f}", fps), {20, 40}, {255, 255, 255}, 1.0, 2);
         tools::draw_text(vis_img, fmt::format("Mode: {}", gimbal.str(mode)), {20, 140}, {255, 255, 255}, 1.0, 2);
 
+        // 录制：写入原始尺寸（放在 resize 之前，保留原始分辨率）
+        if (enable_recording) {
+            if (!viz_writer_initialized) {
+                auto viz_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_viz.avi",
+                                            std::chrono::system_clock::now());
+                viz_writer.open(viz_path,
+                                cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
+                                visualization_fps, vis_img.size());
+                viz_writer_initialized = true;
+            }
+            viz_writer.write(vis_img);
+        }
+
         // E. 显示图像 (缩小一半显示，防止超出屏幕)
-        cv::resize(vis_img, vis_img, {}, 0.5, 0.5);
-        cv::imshow("Auto Aim Debug", vis_img);
-        
-        // 必须加 waitKey，否则窗口不刷新
-        if (cv::waitKey(1) == 'q') {
-            break;
+        if (enable_display) {
+            cv::resize(vis_img, vis_img, {}, 0.5, 0.5);
+            cv::imshow("Auto Aim Debug", vis_img);
+
+            // 必须加 waitKey，否则窗口不刷新
+            if (cv::waitKey(1) == 'q') {
+                break;
+            }
         }
     }
     // ==================== 可视化代码结束 ====================
@@ -248,6 +271,8 @@ int main(int argc, char * argv[])
 
 
   }
+
+  if (viz_writer.isOpened()) viz_writer.release();
 
   return 0;
 }

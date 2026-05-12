@@ -175,3 +175,7 @@ model: "assets/yolo11_buff_int8.xml"
 #####-----buff_aimer参数-----#####
 fire_gap_time: 0.520   # s
 predict_time: 0.100     # s
+
+#####-----可视化录制参数-----#####
+record_visualization: false   # 是否录制可视化视频流
+visualization_fps: 30         # 录制视频帧率

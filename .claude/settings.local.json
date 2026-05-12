@@ -7,7 +7,19 @@
       "Skill(gsd:discuss-phase)",
       "Skill(gsd:progress)",
       "Bash(ls:*)",
-      "Skill(gsd:update)"
+      "Skill(gsd:update)",
+      "Bash(npm view:*)",
+      "Bash(npm list:*)",
+      "Bash(claude --version)",
+      "Bash(claude version:*)",
+      "Bash(where claude:*)",
+      "Bash(claude update:*)",
+      "Bash(curl -fsSL https://claude.ai/install.sh)",
+      "Bash(bash)",
+      "Bash(\"/c/Users/29023/AppData/Roaming/npm/claude\" --version)",
+      "Bash(\"/c/Users/29023/AppData/Roaming/npm/node_modules/.bin/claude\" --version)",
+      "Read(//c/Users/29023/AppData/Roaming/npm/node_modules/@anthropic-ai/claude-code//**)",
+      "Bash(export PATH=\"$HOME/AppData/Roaming/npm:$PATH\")"
     ]
   }
 }
