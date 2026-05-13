@@ -1,9 +1,11 @@
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 
+#include <atomic>
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
+#include <thread>
 #include <yaml-cpp/yaml.h>
 
 #include "io/camera.hpp"
@@ -21,6 +23,7 @@
 #include "tools/math_tools.hpp"
 #include "tools/plotter.hpp"
 #include "tools/recorder.hpp"
+#include "tools/thread_safe_queue.hpp"
 
 using namespace std::chrono;
 
@@ -34,7 +37,12 @@ int main(int argc, char * argv[])
 {
   cv::CommandLineParser cli(argc, argv, keys);
   auto config_path = cli.get<std::string>(0);
-  
+
+  if (cli.has("help") || config_path.empty()) {
+    cli.printMessage();
+    return 0;
+  }
+
   // 获取是否显示的标志
   bool enable_display = cli.get<bool>("display");
 
@@ -45,15 +53,54 @@ int main(int argc, char * argv[])
   int visualization_fps = yaml_config["visualization_fps"].as<int>(30);
   double visualization_scale = yaml_config["visualization_scale"].as<double>(0.5);
   std::string raw_camera_codec = yaml_config["raw_camera_codec"].as<std::string>("FFV1");
-  cv::VideoWriter viz_writer;
-  bool viz_writer_initialized = false;
-  cv::VideoWriter raw_writer;
-  bool raw_writer_initialized = false;
 
-  if (cli.has("help") || config_path.empty()) {
-    cli.printMessage();
-    return 0;
-  }
+  // 录制后台线程（避免 VideoWriter::write 阻塞主循环，沿用 Recorder 的队列+线程模式）
+  std::atomic<bool> record_stop{false};
+  tools::ThreadSafeQueue<cv::Mat, true> raw_queue(60);
+  tools::ThreadSafeQueue<cv::Mat, true> viz_queue(60);
+
+  std::thread raw_thread([&]() {
+      cv::VideoWriter writer;
+      bool initialized = false;
+      while (!record_stop) {
+          cv::Mat frame = raw_queue.pop();
+          if (frame.empty()) continue;
+          if (!initialized) {
+              auto raw_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_raw.avi",
+                                          std::chrono::system_clock::now());
+              int raw_fourcc = (raw_camera_codec == "FFV1")
+                  ? cv::VideoWriter::fourcc('F', 'F', 'V', '1')
+                  : cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
+              writer.open(raw_path, raw_fourcc, visualization_fps, frame.size());
+              initialized = true;
+          }
+          writer.write(frame);
+      }
+      if (writer.isOpened()) writer.release();
+  });
+
+  std::thread viz_thread([&]() {
+      cv::VideoWriter writer;
+      bool initialized = false;
+      while (!record_stop) {
+          cv::Mat frame = viz_queue.pop();
+          if (frame.empty()) continue;
+          if (!initialized) {
+              auto viz_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_viz.avi",
+                                          std::chrono::system_clock::now());
+              cv::Size viz_size(frame.cols * visualization_scale,
+                                frame.rows * visualization_scale);
+              writer.open(viz_path,
+                          cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
+                          visualization_fps, viz_size);
+              initialized = true;
+          }
+          cv::Mat viz_frame;
+          cv::resize(frame, viz_frame, {}, visualization_scale, visualization_scale);
+          writer.write(viz_frame);
+      }
+      if (writer.isOpened()) writer.release();
+  });
 
   tools::Exiter exiter;
   tools::Plotter plotter;
@@ -96,19 +143,8 @@ int main(int argc, char * argv[])
     // 增加空图检查，防止程序崩溃
     if (img.empty()) continue;
 
-    // 录制相机原始输入（YOLO检测前，像素级无损，固定全分辨率）
-    if (enable_raw_recording) {
-        if (!raw_writer_initialized) {
-            auto raw_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_raw.avi",
-                                        std::chrono::system_clock::now());
-            int raw_fourcc = (raw_camera_codec == "FFV1")
-                ? cv::VideoWriter::fourcc('F', 'F', 'V', '1')
-                : cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
-            raw_writer.open(raw_path, raw_fourcc, visualization_fps, img.size());
-            raw_writer_initialized = true;
-        }
-        raw_writer.write(img);
-    }
+    // 录制相机原始输入（推入后台线程写入，不阻塞主循环）
+    if (enable_raw_recording) raw_queue.push(img.clone());
 
     auto t_loop = std::chrono::steady_clock::now();
 
@@ -246,22 +282,8 @@ int main(int argc, char * argv[])
         tools::draw_text(vis_img, fmt::format("FPS: {:.1f}", fps), {20, 40}, {255, 255, 255}, 1.0, 2);
         tools::draw_text(vis_img, fmt::format("Mode: {}", gimbal.str(mode)), {20, 140}, {255, 255, 255}, 1.0, 2);
 
-        // 录制：按配置缩放后写入，减小视频体积
-        if (enable_recording) {
-            if (!viz_writer_initialized) {
-                auto viz_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_viz.avi",
-                                            std::chrono::system_clock::now());
-                cv::Size viz_size(vis_img.cols * visualization_scale,
-                                  vis_img.rows * visualization_scale);
-                viz_writer.open(viz_path,
-                                cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-                                visualization_fps, viz_size);
-                viz_writer_initialized = true;
-            }
-            cv::Mat viz_frame;
-            cv::resize(vis_img, viz_frame, {}, visualization_scale, visualization_scale);
-            viz_writer.write(viz_frame);
-        }
+        // 录制可视化画面（推入后台线程写入，不阻塞主循环）
+        if (enable_recording) viz_queue.push(vis_img.clone());
 
         // E. 显示图像 (缩小一半显示，防止超出屏幕)
         if (enable_display) {
@@ -296,8 +318,11 @@ int main(int argc, char * argv[])
 
   }
 
-  if (viz_writer.isOpened()) viz_writer.release();
-  if (raw_writer.isOpened()) raw_writer.release();
+  record_stop = true;
+  raw_queue.push(cv::Mat());   // sentinel 唤醒 raw_thread
+  viz_queue.push(cv::Mat());   // sentinel 唤醒 viz_thread
+  if (raw_thread.joinable()) raw_thread.join();
+  if (viz_thread.joinable()) viz_thread.join();
 
   return 0;
 }
