@@ -44,6 +44,7 @@ int main(int argc, char * argv[])
   bool enable_raw_recording = yaml_config["record_raw_camera"].as<bool>(false);
   int visualization_fps = yaml_config["visualization_fps"].as<int>(30);
   double visualization_scale = yaml_config["visualization_scale"].as<double>(0.5);
+  std::string raw_camera_codec = yaml_config["raw_camera_codec"].as<std::string>("FFV1");
   cv::VideoWriter viz_writer;
   bool viz_writer_initialized = false;
   cv::VideoWriter raw_writer;
@@ -95,21 +96,18 @@ int main(int argc, char * argv[])
     // 增加空图检查，防止程序崩溃
     if (img.empty()) continue;
 
-    // 录制相机原始输入（YOLO检测前，用于离线回放调试）
+    // 录制相机原始输入（YOLO检测前，像素级无损，固定全分辨率）
     if (enable_raw_recording) {
         if (!raw_writer_initialized) {
             auto raw_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_raw.avi",
                                         std::chrono::system_clock::now());
-            cv::Size raw_size(img.cols * visualization_scale,
-                              img.rows * visualization_scale);
-            raw_writer.open(raw_path,
-                            cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-                            visualization_fps, raw_size);
+            int raw_fourcc = (raw_camera_codec == "FFV1")
+                ? cv::VideoWriter::fourcc('F', 'F', 'V', '1')
+                : cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
+            raw_writer.open(raw_path, raw_fourcc, visualization_fps, img.size());
             raw_writer_initialized = true;
         }
-        cv::Mat raw_frame;
-        cv::resize(img, raw_frame, {}, visualization_scale, visualization_scale);
-        raw_writer.write(raw_frame);
+        raw_writer.write(img);
     }
 
     auto t_loop = std::chrono::steady_clock::now();
