@@ -36,7 +36,7 @@ usb_gain: 10 #0-96
 #####-----工业相机参数-----#####
 camera_name: "hikrobot"
 exposure_ms: 8
-gain: 12.0
+gain: 16.0
 vid_pid: "2bdf:0001"
 
 #####-----传统方法参数-----#####
@@ -67,7 +67,7 @@ serial_baudrate: 460800
 use_ukf: false
 min_detect_count: 5
 max_temp_lost_count: 75
-outpost_max_temp_lost_count: 300
+outpost_max_temp_lost_count: 100
 
 #####-----aimer参数-----#####
 yaw_offset: 0.8 # degree -2.5 正左
@@ -177,8 +177,8 @@ fire_gap_time: 0.520   # s
 predict_time: 0.100     # s
 
 #####-----可视化录制参数-----#####
-record_visualization: false   # 是否录制可视化视频流
-record_raw_camera: false      # 是否录制相机原始输入（YOLO之前，像素级无损）
+record_visualization: true   # 是否录制可视化视频流
+record_raw_camera: true     # 是否录制相机原始输入（YOLO之前，像素级无损）
 visualization_fps: 30         # 录制视频帧率
 visualization_scale: 0.5      # 录制缩放比例（0.5=640x360，减小体积）
 raw_camera_codec: "FFV1"      # 原始相机编码: "FFV1"(无损) / "MJPG"(有损)
