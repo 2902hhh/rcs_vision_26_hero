@@ -41,10 +41,13 @@ int main(int argc, char * argv[])
   // 读取可视化录制配置
   auto yaml_config = YAML::LoadFile(config_path);
   bool enable_recording = yaml_config["record_visualization"].as<bool>(false);
+  bool enable_raw_recording = yaml_config["record_raw_camera"].as<bool>(false);
   int visualization_fps = yaml_config["visualization_fps"].as<int>(30);
   double visualization_scale = yaml_config["visualization_scale"].as<double>(0.5);
   cv::VideoWriter viz_writer;
   bool viz_writer_initialized = false;
+  cv::VideoWriter raw_writer;
+  bool raw_writer_initialized = false;
 
   if (cli.has("help") || config_path.empty()) {
     cli.printMessage();
@@ -91,6 +94,23 @@ int main(int argc, char * argv[])
     camera.read(img, t);
     // 增加空图检查，防止程序崩溃
     if (img.empty()) continue;
+
+    // 录制相机原始输入（YOLO检测前，用于离线回放调试）
+    if (enable_raw_recording) {
+        if (!raw_writer_initialized) {
+            auto raw_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_raw.avi",
+                                        std::chrono::system_clock::now());
+            cv::Size raw_size(img.cols * visualization_scale,
+                              img.rows * visualization_scale);
+            raw_writer.open(raw_path,
+                            cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
+                            visualization_fps, raw_size);
+            raw_writer_initialized = true;
+        }
+        cv::Mat raw_frame;
+        cv::resize(img, raw_frame, {}, visualization_scale, visualization_scale);
+        raw_writer.write(raw_frame);
+    }
 
     auto t_loop = std::chrono::steady_clock::now();
 
@@ -279,6 +299,7 @@ int main(int argc, char * argv[])
   }
 
   if (viz_writer.isOpened()) viz_writer.release();
+  if (raw_writer.isOpened()) raw_writer.release();
 
   return 0;
 }
