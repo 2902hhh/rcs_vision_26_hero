@@ -68,9 +68,13 @@ int main(int argc, char * argv[])
           if (!initialized) {
               auto raw_path = fmt::format("logs/{:%Y-%m-%d_%H-%M-%S}_raw.avi",
                                           std::chrono::system_clock::now());
-              int raw_fourcc = (raw_camera_codec == "FFV1")
-                  ? cv::VideoWriter::fourcc('F', 'F', 'V', '1')
-                  : cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
+              int raw_fourcc;
+              if (raw_camera_codec == "PNG")
+                  raw_fourcc = cv::VideoWriter::fourcc('p', 'n', 'g', ' ');
+              else if (raw_camera_codec == "FFV1")
+                  raw_fourcc = cv::VideoWriter::fourcc('F', 'F', 'V', '1');
+              else
+                  raw_fourcc = cv::VideoWriter::fourcc('M', 'J', 'P', 'G');
               writer.open(raw_path, raw_fourcc, visualization_fps, frame.size());
               initialized = true;
           }

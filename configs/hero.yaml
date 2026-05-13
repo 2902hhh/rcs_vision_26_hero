@@ -181,4 +181,4 @@ record_visualization: true   # 是否录制可视化视频流
 record_raw_camera: true     # 是否录制相机原始输入（YOLO之前，像素级无损）
 visualization_fps: 30         # 录制视频帧率
 visualization_scale: 0.5      # 录制缩放比例（0.5=640x360，减小体积）
-raw_camera_codec: "FFV1"      # 原始相机编码: "FFV1"(无损) / "MJPG"(有损)
+raw_camera_codec: "PNG"       # 原始相机编码: "PNG"(无损高压缩) / "FFV1" / "MJPG"
