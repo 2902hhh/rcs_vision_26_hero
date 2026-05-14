@@ -58,6 +58,8 @@ int main(int argc, char * argv[])
   std::atomic<bool> record_stop{false};
   tools::ThreadSafeQueue<cv::Mat, true> raw_queue(60);
   tools::ThreadSafeQueue<cv::Mat, true> viz_queue(60);
+  auto last_raw_push = std::chrono::steady_clock::now();
+  auto last_viz_push = std::chrono::steady_clock::now();
 
   std::thread raw_thread([&]() {
       cv::VideoWriter writer;
@@ -147,8 +149,14 @@ int main(int argc, char * argv[])
     // 增加空图检查，防止程序崩溃
     if (img.empty()) continue;
 
-    // 录制相机原始输入（推入后台线程写入，不阻塞主循环）
-    if (enable_raw_recording) raw_queue.push(img.clone());
+    // 录制相机原始输入（按录制帧率限速推送，不阻塞主循环）
+    if (enable_raw_recording) {
+        auto t_now = std::chrono::steady_clock::now();
+        if (tools::delta_time(t_now, last_raw_push) >= 1.0 / visualization_fps) {
+            raw_queue.push(img.clone());
+            last_raw_push = t_now;
+        }
+    }
 
     auto t_loop = std::chrono::steady_clock::now();
 
@@ -286,8 +294,14 @@ int main(int argc, char * argv[])
         tools::draw_text(vis_img, fmt::format("FPS: {:.1f}", fps), {20, 40}, {255, 255, 255}, 1.0, 2);
         tools::draw_text(vis_img, fmt::format("Mode: {}", gimbal.str(mode)), {20, 140}, {255, 255, 255}, 1.0, 2);
 
-        // 录制可视化画面（推入后台线程写入，不阻塞主循环）
-        if (enable_recording) viz_queue.push(vis_img.clone());
+        // 录制可视化画面（按录制帧率限速推送，不阻塞主循环）
+        if (enable_recording) {
+            auto t_now = std::chrono::steady_clock::now();
+            if (tools::delta_time(t_now, last_viz_push) >= 1.0 / visualization_fps) {
+                viz_queue.push(vis_img.clone());
+                last_viz_push = t_now;
+            }
+        }
 
         // E. 显示图像 (缩小一半显示，防止超出屏幕)
         if (enable_display) {
